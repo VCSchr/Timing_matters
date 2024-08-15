@@ -1,0 +1,1964 @@
+---
+editor_options:
+  chunk_output_type: console
+output:
+  html_document:
+    fig_caption: yes
+    figure_caption: yes
+    highlight: tango
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+  word_document:
+    toc: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Timing matters: Land use determines temporal dynamics in structure and function of fungal communities in streams {-}
+
+Verena C. Schreiner, Moritz Link, Gesa Amelung, Katharina Ohler, Romana Salis, Florain Leese & Ralf B. Schäfer
+
+R script written by Verena C. Schreiner \
+checked by Moritz Link  \
+University of Duisburg-Essen &  Research Center One Health Ruhr, University Alliance Ruhr \
+Universitätsstrasse 2  \
+45141 Essen  \
+GERMANY  \
+Corresponding author mail address: verena.schreiner'\@'uni-due.de
+
+The study was conducted with three treatments and across four time points
+
+* treatment (categorical)
+    + forest
+    + transplant
+    + viticulture
+  
+* time.point (categorical)
+    + April (before pesticide application, only fertilizer)
+    + June (during pesticide application)
+    + August (maximum pesticide application)
+    + September (after pesticide application)
+  
+
+# Tools / Packages
+
+```{r, message=FALSE, warning=FALSE}
+library(plyr) # data wrangling, version 1.8.7
+library(dplyr) # data wrangling, version 1.1.2
+library(vegan) # create RDA plots, version 2.6-4
+library(lme4) # create LMM, version 1.1-34
+library(emmeans) # conduct pairwise comparisons of LMM between treatments of one time point, version 1.8.0
+library(DAAG) # check QQ plots, version 1.25.4
+library(Rmisc) # calculate CI, version 1.5.1
+library(ggplot2) # create plots, version 3.4.3
+library(BiodiversityR) # conduct pairwise comparisons of the RDA analysis, version 2.14-4
+library(indicspecies) # For IndVal analysis, version 1.7.12
+library(ggpubr) # arrange plots, version 0.4.0
+library(betapart) # for tunover and nestedness calculations, version
+```
+
+set your path 
+```{r}
+prj <- getwd()
+setwd(prj)
+```
+
+
+# organic matter decomposition
+```{r}
+leaf_weight <- read.table(file.path(prj, "1_leaf_weight.csv"), 
+                      header = TRUE, 
+                      sep = ",", 
+                      na.strings = c("NR", "NA"))
+leaf_weight$treatment <-gsub("vine", "viti", leaf_weight$treatment)
+```
+
+## calculating AFDMs (ash free dry mass)
+Ash-free dry mass (AFDM) is used to correct for inorganic material attached to the different substrates
+
+### calculate AFDM of exposed leaves
+subtract mass of ashes from dried mass for the rest of leaf material and disks used to estimate the mass of one leaf disk (OMD) and to investigate the fugal community (conidia)
+```{r}
+leaf_weight$rest_AFDM <- leaf_weight$dry_weight_rest - leaf_weight$ashes_rest
+leaf_weight$OMD_AFDM <- leaf_weight$dry_weight_OMD - leaf_weight$ashes_OMD
+leaf_weight$conidia_AFDM <- leaf_weight$dry_weight_conidia - leaf_weight$ashes_conidia
+```
+
+remove all samples, where no leaf mass was recorded from the end (samples lost in the field) or the beginning (transfer errors)
+```{r}
+leaf_weight <- leaf_weight[!is.na(leaf_weight$rest_AFDM), ] # remove 59 replicates
+leaf_weight <- leaf_weight[!is.na(leaf_weight$weight_start), ] # remove 14 replicates
+```
+
+calculate the AFDM of all cut leaf disks (used for different endpoints) \
+
+the number of leaf disks cut differs between the replicates, since  the remaining leaf mass was not always suitable to cut all disks for the planned endpoints. Number of cut leaf disk was recorded while cutting. Missing masses from leaf disks are caused by handling losses in the lab.
+
+number of disks | endpoint
+----------------|----------
+              3 | DNA analysis
+              5 | conidia 
+              3 | exo-enzyme activity
+             15 | ergosterol
+              7 | OMD (only to calculate leaf mass of one disk)
+              - | -
+             33 | total
+             
+```{r}
+leaf_weight$afdm_alldisks <- ifelse(!is.na(leaf_weight$OMD_AFDM) & !is.na(leaf_weight$conidia_AFDM),
+                                       (leaf_weight$OMD_AFDM + leaf_weight$conidia_AFDM)/
+                                      (leaf_weight$disks_conidia + leaf_weight$disks_OMD) 
+                                    * leaf_weight$disks_total,
+                                    # if AFDM information from OMD and conidia disks is available calculate ADFM 
+                                    # using both information
+                                       ifelse(is.na(leaf_weight$OMD_AFDM),
+                                              leaf_weight$conidia_AFDM/leaf_weight$disks_conidia *
+                                                leaf_weight$disks_total,
+                                    # if no information from OMD is available, AFDM of disks based on conidia disks
+                                              ifelse(is.na(leaf_weight$conidia_AFDM),
+                                                     leaf_weight$OMD_AFDM/leaf_weight$disks_OMD *
+                                                       leaf_weight$disks_total,
+                                    # if no information about conidia available AFDM of disks based on OMD disks
+                                                     NA)))
+```
+
+In case leaf disks were cut, but they were not weighted (e.g., DNA disks) or masses were lost during handing, the leaf disk mass was estimated based on the average leaf disk mass of the stream-time point-treatment combination
+
+count for how many samples disk leaf mass is missing
+```{r}
+leaf_weight_miss_disk_masses <- leaf_weight[is.na(leaf_weight$afdm_alldisks), ] 
+# for 30 replicated insufficient information on disk weight available
+
+# filter for those samples, for which leaf disks were cut but no leaf disk mass is available
+leaf_weight_miss_disk_masses <- leaf_weight_miss_disk_masses[!leaf_weight_miss_disk_masses$disks_total == "0", ]
+# 8 replicated were removed where no leaf disks were cut
+```
+
+
+now calculate mean mass of one leaf disks per stream-time point-treatment combination
+```{r}
+mean_afdm_disk <- leaf_weight %>% group_by(stream, treatment, time.point) %>%
+                  summarise(mean_afdm_disk = mean((afdm_alldisks/disks_total), na.rm = TRUE))
+
+# merge with existing data frame 
+leaf_weight <- join(leaf_weight, mean_afdm_disk, by =c("stream", "treatment", "time.point")) 
+# only use this information for those where no information at afdm_alldisks is available, but leaf disks were cut
+
+leaf_weight$afdm_alldisks <- ifelse(!is.na(leaf_weight$afdm_alldisks), leaf_weight$afdm_alldisks,
+                                         leaf_weight$mean_afdm_disk * leaf_weight$disks_total)
+
+leaf_weight$afdm_end <- leaf_weight$rest_AFDM + leaf_weight$afdm_alldisks
+
+# keep a version with the AFDM of conidia (necessary for later statistic analysis, see code section "Fungal communities, conidia")
+leaf_weight_all_info <- leaf_weight
+
+# only keep those columns needed for the further analysis
+leaf_weight <- leaf_weight[c("stream", "treatment", "time.point", "replicate","number.days", "weight_start", "afdm_end")]
+```
+
+### calculate AFDM of initial leaf weight
+normalise the start leaf weight for handling loss and calculate the theoretical initial AFDM
+the used leaves were air dried. Transport control leaf bags were afterwards processed like all other leaves to calculate AFDM
+
+read in data of transport controls
+```{r}
+transport <-  read.table(file.path(prj, "2_Transport_controls.csv"), 
+                      header = TRUE, 
+                      sep = ";", 
+                      na.strings = c("NR", "NA")) 
+```
+
+calculate percentage differences between start and 60 degree (handling loss) and 500°C (ashes)
+```{r}
+# only use information for fine bags
+transport <- transport[!transport$type == "coarse",]
+
+# calculate difference start 60
+# weight in the start in g, oven dried and ashed masses are in mg
+transport$perc_60 <- transport$weight_60 / (transport$weight_start_g * 1000)
+transport$perc_500 <- transport$weight_500 / (transport$weight_start_g * 1000)
+```
+
+calculate mean per time point
+```{r}
+transport_mean <- aggregate(transport[, 7:8], list(transport$time_point), mean)
+names(transport_mean)[1] <- c("time.point")
+```
+
+merge ratios of transport controls to leaf weights
+```{r}
+leaf_weight <- join(leaf_weight, transport_mean, by = c("time.point"), type="left")
+```
+
+now calculate start AFDM based on the transport controls
+here weight_start is in g to and needs to be transferred to mg
+```{r}
+leaf_weight$afdm_start <- ((leaf_weight$weight_start * 1000) * leaf_weight$perc_60) - 
+                          ((leaf_weight$weight_start * 1000) * leaf_weight$perc_500)
+```
+
+remove all values, where afdm start is smaller than afdm end (mistake during labwork)
+```{r}
+leaf_weight <- leaf_weight[!leaf_weight$afdm_start < leaf_weight$afdm_end, ] # 3 replicates removed
+```
+
+remove unnecessary columns
+```{r}
+leaf_weight <- leaf_weight[c("stream", "treatment", "time.point", "replicate","number.days", "afdm_start", "afdm_end")]
+```
+
+## calculate DLM (decomposed leaf mass)
+### add temperatures
+add mean temperatures during exposure, based on logger data
+```{r}
+mean_temp <- read.table(file.path(prj, "3_mean_temp_treatments.csv"), 
+                      header = TRUE, 
+                      sep = ",", 
+                      na.strings = c("NR", "NA")) 
+
+# change sampling to time point
+names(mean_temp)[2] <- c("time.point")
+names(mean_temp)[1] <- c("stream")
+mean_temp$time.point <- gsub("1", "April", mean_temp$time.point)
+mean_temp$time.point <- gsub("2", "June", mean_temp$time.point)
+mean_temp$time.point <- gsub("3", "August", mean_temp$time.point)
+mean_temp$time.point <- gsub("4", "September", mean_temp$time.point)
+
+
+# transform in long format
+mean_temp <- reshape2::melt(mean_temp, id.vars = c("stream", "time.point"), value.name = "mean_temp", variable.name = "treatment")
+# change treatment names
+mean_temp$treatment <- gsub("down", "viti", mean_temp$treatment)
+mean_temp$treatment <- gsub("up", "forest", mean_temp$treatment)
+mean_temp$treatment <- gsub("move", "transplant", mean_temp$treatment)
+```
+
+Add temperature information to leaf masses (by time.point, stream and treatment)
+```{r}
+leaf_weight <- join(leaf_weight, mean_temp, by=c("time.point","stream", "treatment"), type = "left")
+```
+
+For the transplant treatment, the temperature was calculated as weighted means based on the exposure temperatures during the deploxments at the respective sites.
+
+### calculation
+
+normalise for exposure duration and mean temperature (summed up as degreeday) during exposure using this formula
+
+$$ DLM = \left( \frac{\frac{AFDM_{t0}-AFDM_{t1}}{AFDM_{t0}} *100}{Tn} \right)$$
+where $AFDM_{t0}$ is the AFDM before deployment, $AFDM_{t1}$ the AFDM after deployment, $T$ is the mean temperature over the deployment period and $n$ refers to the number of days of deployment
+
+The data from this endpoint are % of lost leaf mass, divided with number degreedays ($\frac{\sum_{j}^t \overline{T}_{i}(j)}{ n_{j} }$) and days exposed 
+(to normalise for temperature differences between streams, treatments and time points)
+
+```{r}
+leaf_weight$DLM <- (((leaf_weight$afdm_start - leaf_weight$afdm_end) / leaf_weight$afdm_start) * 100)/
+                   (leaf_weight$mean_temp * leaf_weight$number.days)
+
+# only keep relevant columns for further statistics
+leaf_weight <- leaf_weight[,c("stream", "time.point", "treatment", "replicate", "DLM")]
+```
+
+## Statistical analysis DLM
+investigate data 
+```{r}
+hist(leaf_weight$DLM) 
+
+qqnorm(leaf_weight$DLM, datax=TRUE)
+qqline(leaf_weight$DLM, datax=TRUE)
+```
+
+data are not perfectly normal distributed, since we have dispersion at the ends
+but normal distribution still the the best fit
+
+### model building
+linear mixed model with the stream and stream + treatment (to consider the technical replicates) as random factor, check if both explanatory variables (namely time.point and treatment) interact
+
+```{r}
+# create the second random factor stream + treatment
+leaf_weight$fac_repli <- paste(leaf_weight$stream, leaf_weight$treatment)
+
+DLM_lmer <- lmer(DLM ~ time.point + treatment + time.point:treatment + (1|stream) + (1|fac_repli), data = leaf_weight)
+
+plot(DLM_lmer) # point cloud looks evenly distributed --> normal distribution
+qreference(residuals(DLM_lmer)) # normality not perfect, but ok
+
+drop1(DLM_lmer, test = 'Chisq')
+# interaction is highly significant (p = 0.002285)
+# check next at which time points is there a difference between treatments and where not
+anova(DLM_lmer)
+```
+
+### check differences between the treatments at each timepoint
+conduct Tukey-test
+```{r}
+DLM_inter <- lsmeans(DLM_lmer, ~ treatment | time.point )
+
+DLM_inter_dunn1 <- contrast(DLM_inter, 'pairwise')
+(DLM_inter_dunn_sum1 <- summary(DLM_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+
+#### create Figure 1
+create DLM plot
+```{r}
+DLM_CI <- group.CI(DLM ~ time.point + treatment,
+                   data = leaf_weight,
+                   ci = 0.95)
+
+# change order of the factor time point
+DLM_CI$time.point <- factor(DLM_CI$time.point,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+DLM_CI$treatment <- gsub("transplant", "trans.", DLM_CI$treatment)
+
+# for indication of significance
+ann_text_1 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "**", 
+                       time.point = factor("April",levels = c("April", "June", "August", "September")))  
+# Difference forest - viti April
+ann_text_2 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**", 
+                       time.point = factor("April",levels = c("April", "June", "August", "September"))) 
+# Difference transplant - viti April
+ann_text_3 <- data.frame(treatment = "trans.", DLM.mean = 0.20, lab = "\U25AA",  # unicode hex for square
+                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti June
+ann_text_4 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**", 
+                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# Difference transplant - viti June
+ann_text_5 <- data.frame(treatment = "forest", DLM.mean = 0.195, lab = "\U25AA", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference forest - transplant August
+ann_text_6 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti August
+ann_text_7 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "***", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference transplant - viti August
+ann_text_8 <- data.frame(treatment = "forest", DLM.mean = 0.1945, lab = "*", 
+                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# Difference forest - transplant September
+ann_text_9 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***", 
+                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti September
+ann_text_10 <- data.frame(treatment = "viti", DLM.mean = 0.195, lab = "\U25AA",
+                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# Difference transplant - viti September
+ann_text <- rbind(ann_text_1, ann_text_2, ann_text_3, ann_text_4, ann_text_5, ann_text_6, ann_text_7, ann_text_8, ann_text_9, ann_text_10)
+
+# for lines below significance indications
+fv <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.198), 4)) 
+mv <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.192), 4))
+nv <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.1935), 4))
+
+p1_DLM <-  ggplot(DLM_CI, aes(x = treatment, y = DLM.mean)) +
+  geom_pointrange(aes(y = DLM.mean, ymin = DLM.lower, ymax = DLM.upper))+
+  geom_point(mapping = aes(y = DLM.mean), size = 3) +
+  facet_wrap(~time.point, nrow = 1) +
+  ylab('Decomposed leaf mass [%] per dday')+
+  xlab("")+
+  ylim(0.11, 0.20)+
+  geom_text(data = ann_text, label = ann_text$lab, cex = 7)+
+  geom_line(data = fv, aes(x = a, y = b)) +
+  geom_line(data = mv, aes(x = a, y = b)) +
+  geom_line(data = nv, aes(x = a, y = b)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title = element_blank(),strip.background = element_rect(fill="white"))
+
+p1_DLM
+
+svg(filename="Figure_1_DLM.svg", width=10, height=7.5, pointsize=12)
+p1_DLM
+dev.off()
+
+# unnecessary lines for significance will be removed manually in the vector graphic
+```
+
+
+# Fungal communities
+with the information of the fungal communities (via morphological identification and metabarcoding), we will look at following endpoints: \
+* taxa richness \
+* community structure/community composition \
+* identification of indicator taxa \
+
+## Conidia
+information retrieved from morphological identification
+
+### Prepare data
+read dataframe
+```{r}
+conidia <- read.table(file.path(prj, "4_conidia_data.csv"), 
+                      header = TRUE, 
+                      sep = ";", 
+                      na.strings = c("NR", "NA")) 
+
+# rename treatment
+conidia$treatment <- gsub("move", "transplant", conidia$treatment)
+conidia$treatment <-gsub("vine", "viti", conidia$treatment)
+```
+
+calculate the number of spores related to AFDM of used leaves
+```{r}
+# April Russbach transplant 3: take only half the leaf disk mass since
+# twice the amount of stream water was in vial but still 2 ml were taken for Mixed-sample
+leaf_weight_all_info[leaf_weight_all_info$time.point=="April" & leaf_weight_all_info$stream=="Russbach" & leaf_weight_all_info$treatment=="transplant" & leaf_weight_all_info$replicate==3, "conidia_AFDM"] <- 0.5 * leaf_weight_all_info[leaf_weight_all_info$time.point=="April" & leaf_weight_all_info$stream=="Russbach" & leaf_weight_all_info$treatment=="transplant" & leaf_weight_all_info$replicate==3, "conidia_AFDM"] 
+
+# volume sample and used AFDM has to be calculated
+conid_sum <- leaf_weight_all_info %>%
+  filter(!is.na(conidia_AFDM)) %>% 
+  group_by(time.point, stream, treatment) %>%
+  summarise(nr_reps = n(), vol_ml = nr_reps*(10 + 0.855 + 0.019), sum_conidia_AFDM = sum(conidia_AFDM, na.rm = TRUE))
+# vol_ml: The calculated volume refers to the sum of all replicates. For one replicate, we used 10 mL of stream water and added 0.855 mL of formadehyde to preserve and 0.019 mL of tween to prevent clogging of the conidia
+# sum_conidia_AFDM: summarize all AFDM of conidia disks per stream - treatment - timepoint combination since the replicates were pooled to reduce number of analysed samples
+# nr_reps refers to the number of replicates which were pooled to create one sample
+
+# merge with conidia table
+conidia <- merge(conidia, conid_sum, by = c("time.point", "stream", "treatment"))
+
+# change order of columns
+conidia <- conidia[ ,c(1:6, 64:66, 7:63)]
+
+# Kropsbach viti August -> take half the filtered volume since 4 mL were taken per replicate for mixed-sample instead of 2 ml.
+conidia[conidia$time.point=="August" & conidia$stream=="Kropsbach" & conidia$treatment=="viti", "filtered_volume"] <- conidia[conidia$time.point=="August" & conidia$stream=="Kropsbach" & conidia$treatment=="viti", "filtered_volume"] /2
+```
+
+Calculate sporulation rate of each identified species
+correct the number of counted spores with the filtered volume, the total sample volume and the number of examined squares
+```{r}
+conidia_corr <- data.frame(conidia[1:3], lapply(conidia[10:66], function(x) {x / 
+    ((conidia$sum_conidia_AFDM * (conidia$filtered_volume / conidia$vol_ml) * 
+        (conidia$squares_examined / conidia$squares_total)))
+}))
+# unit of sporulation rate = number of conidia / g AFDM
+```
+
+
+### taxa richness
+calculate taxa richness (i.e., all detected taxa in one sample)
+```{r}
+conidia_corr$taxa_rich <- apply(conidia_corr[4:60], 1, function(x) sum(x > 0))
+```
+
+create model
+since taxa richness is a count data, use poisson distribution
+```{r}
+taxa <- conidia_corr[ , c("stream", "treatment", "time.point", "taxa_rich")]
+
+taxa_lmer1 <- glmer(taxa_rich ~ time.point + treatment + time.point:treatment + (1|stream), data = taxa, family = "poisson")
+
+drop1(taxa_lmer1, test = 'Chisq')
+# interaction is  significant (p = 0.03963 *)
+# check next at which timepoints is there a difference between treatments and where not
+anova(taxa_lmer1)
+```
+
+
+```{r}
+taxa_inter <- lsmeans(taxa_lmer1, ~ treatment | time.point )
+
+taxa_inter_dunn1 <- contrast(taxa_inter, 'pairwise')
+(taxa_inter_dunn_sum1 <- summary(taxa_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+
+
+#### create Figure S4_A
+create plot of taxa richness based on morphological identification (conidia)
+```{r}
+taxa_CI <- group.CI(taxa_rich ~ time.point + treatment,
+                   data = taxa,
+                   ci = 0.95)
+
+# change order of the factor time point
+taxa_CI$time.point <- factor(taxa_CI$time.point,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+taxa_CI$treatment <- gsub("transplant", "trans.", taxa_CI$treatment)
+
+# create significance indication
+taxa_text_1 <- data.frame(treatment = "trans.", taxa_rich.mean = 22, lab = "**", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti August
+taxa_text_2 <- data.frame(treatment = "viti", taxa_rich.mean = 20.6, lab = "**", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti August
+taxa_text_3 <- data.frame(treatment = "trans.", taxa_rich.mean = 22, lab = "*", 
+                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti September
+taxa_text_4 <- data.frame(treatment = "viti", taxa_rich.mean = 21, lab = "\U25AA", # unicode hex for square!
+                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti September
+
+taxa_text <- rbind(taxa_text_1, taxa_text_2, taxa_text_3, taxa_text_4)
+
+# lines below significance indication
+fv_taxa <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(21.5), 4)) 
+mv_taxa <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(20.5), 4))
+
+
+p1_taxa <-  ggplot(taxa_CI, aes(x = treatment, y = taxa_rich.mean)) +
+  geom_pointrange(data = taxa_CI, aes(y = taxa_rich.mean, ymin = taxa_rich.lower, ymax = taxa_rich.upper))+
+  geom_point(data = taxa_CI, mapping = aes(y = taxa_rich.mean), size = 3) +
+  facet_wrap(~time.point, nrow = 1) +
+  ylab('taxa richness')+
+  xlab("")+
+  ggtitle("Hyphomycetes (conidia)")+
+  ylim(2, 22)+
+  geom_text(data = taxa_text, label = taxa_text$lab, cex = 7) +#, x = taxa_text$treatment, y = taxa_text$DLM.mean) +
+  geom_line(data = fv_taxa, aes(x = a, y = b)) +
+  geom_line(data = mv_taxa, aes(x = a, y = b)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title =  element_text(hjust = 0.5),strip.background = element_rect(fill="white"))
+
+p1_taxa
+
+# unnecessary lines for significance will be removed manually in the vector graphic
+```
+
+
+### fungal community composition
+separate explanatory variables from conidia information
+```{r}
+conid_spor <- conidia_corr[-c(1:3, 61:62) ] # only conidia information
+conid_expl <- conidia_corr[c(1:3) ] # only explanatory variables
+conid_expl$time.point <- as.factor(conid_expl$time.point)
+conid_expl$stream <- as.factor(conid_expl$stream)
+conid_expl$treatment <- as.factor(conid_expl$treatment)
+```
+
+prepare dataframes
+```{r}
+# Delete species with zero occurence
+conid_spor <- conid_spor[, !colSums(conid_spor) < 1 ]
+
+# 2 Sites with zero species
+rowSums(conid_spor)
+which(conidia_corr$conidia_total == 0,)
+# Sample 54: August Otterbach viti
+# Sample 83: June Otterbach move
+# delete entries
+conid_spor <- conid_spor[rowSums(conid_spor)>0,]
+# delete entries also from explanatory variables
+conid_expl <- conid_expl[!(conid_expl$time.point=="August" & conid_expl$stream=="Otterbach" & conid_expl$treatment=="viti"), ]
+conid_expl <- conid_expl[!(conid_expl$time.point=="June" & conid_expl$stream=="Otterbach" & conid_expl$treatment=="transplant"), ]
+```
+
+#### make Anovas
+Create several Anovas with different numbers and composition of explanatory variables, to be able to calculate effects sizes and p-values individually for each explanatory variable.
+```{r}
+rda_conid_1 <- rda(decostand(conid_spor, "hellinger") 
+                        ~ time.point +  Condition(stream), data = conid_expl)
+summary(rda_conid_1, display = NULL)
+anova(rda_conid_1, by = "margin")
+# time.point  3  0.11392 10.974  0.001 ***
+# 22.7% explained variance (see at summary, proportion constrained)
+
+rda_conid_2 <- rda(decostand(conid_spor, "hellinger") 
+                        ~ treatment +  Condition(stream), data = conid_expl)
+summary(rda_conid_2, display = NULL)
+anova(rda_conid_2, by = "margin")
+#  treatment  2  0.03390 3.9645  0.001 ***
+# 6.8 % explained
+
+rda_conid_3 <- rda(decostand(conid_spor, "hellinger") 
+                        ~ time.point + treatment +  Condition(stream), data = conid_expl)
+summary(rda_conid_3, display = NULL)
+anova(rda_conid_3, by = "margin")
+# time.point  3 0.113980 12.0100  0.001 ***
+# treatment   2 0.033954  5.3665  0.001 ***
+# both together explains 29%
+
+rda_conid_4 <- rda(decostand(conid_spor, "hellinger") 
+                        ~ time.point + treatment + time.point:treatment , data = conid_expl)
+summary(rda_conid_4, display = NULL)
+anova(rda_conid_4) # F value 5.4504  
+anova(rda_conid_4, by = "terms")
+#                      Df Variance       F Pr(>F)    
+# time.point            3 0.119097 12.1837  0.001 ***
+# treatment             2 0.034630  5.3141  0.001 ***
+# time.point:treatment  6 0.041625  2.1291  0.001 ***
+# adding an interaction explains 39% of variance
+
+# adding stream as random factor
+rda_conid_5 <- rda(decostand(conid_spor, "hellinger") 
+                        ~ time.point + treatment + time.point:treatment +  Condition(stream), data = conid_expl)
+summary(rda_conid_5, display = NULL)
+anova.cca(rda_conid_5, step = 1000) # model is significant, highest F-Value (5.9261), so best model (Use for further description)
+anova.cca(rda_conid_5, step = 1000, by = "terms")
+anova(rda_conid_5,  by = "margin")
+# model explains 38%
+# of this 13 % of the condition (the random factor stream)
+# model with random factor explains less variance, but is more correct, so use these results
+
+#                      Df Variance       F Pr(>F)    
+# time.point            3 0.113923 13.0883  0.001 ***
+# treatment             2 0.033954  5.8512  0.001 ***
+# time.point:treatment  6 0.041256  2.3699  0.001 ***
+```
+
+#### conduct pairwise comparison with rda data
+```{r}
+multiconstrained(method="rda", decostand(conid_spor, "hellinger") 
+                        ~ time.point + treatment + time.point:treatment +  Condition(stream), data = conid_expl, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="treatment", contrast=0)
+#                 Df SumOfSqs      F Pr(>F)    
+# forest vs. move  7    27739 6.7531  0.001 ***
+# forest vs. viti  7    48828 6.5054  0.001 ***
+# move vs. viti    7    34855 5.3330  0.001 ***
+
+multiconstrained(method="rda", decostand(conid_spor, "hellinger") 
+                        ~ time.point + treatment + time.point:treatment +  Condition(stream), data = conid_expl, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="time.point", contrast=0)
+#                      Df SumOfSqs      F Pr(>F)    
+# April vs. August      5    39374 8.7644  0.001 ***
+# April vs. June        5    30982 8.3179  0.001 ***
+# April vs. September   5    42941 3.9639  0.001 ***
+# August vs. June       5     7892 3.7283  0.001 ***
+# August vs. September  5    28179 3.2165  0.001 ***
+# June vs. September    5    21949 2.9242  0.002 ** 
+```
+
+All treatments and months are significantly different
+
+Now repeat this, with the interaction term of time point and treatment
+Attention: p-values were not normalised for multiple testing
+```{r}
+conid_expl_interact <- conid_expl
+conid_expl_interact$time_treat <- paste(conid_expl_interact$time.point, conid_expl_interact$treatment)
+
+multiconstrained(method="rda", decostand(conid_spor, "hellinger") 
+                        ~ time.point + treatment + time.point:treatment +  Condition(stream), data = conid_expl_interact, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="time_treat", contrast=0)
+```
+
+* in April all communities are very similar \
+* April generally different from other time points \
+* in June + September communities also not significantly different, but tendency visible \
+* in August forest and viti different \
+
+#### create Figure 2
+```{r}
+scl = 'symmetric'
+# arrange size of single plot
+si_sc <- scores(rda_conid_5, choices = 1:2, scaling = scl, display = 'sites')
+sp_sc <- scores(rda_conid_5, choices = 1:2, scaling = scl, display = 'species')
+va_sc <- scores(rda_conid_5, choices = 1:2, scaling = scl, display = 'cn')
+
+scrs <- scores(rda_conid_5, display = c("sites"), scaling = scl)
+
+png(filename="Figure_2_RDA_conidia.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+p1_RDA_conid <- plot(rda_conid_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][1],
+                     " (", round(summary(rda_conid_5)$cont$importance[2,1]*100),  
+                     "% total variance)", sep=""),
+          ylab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][2],
+                     " (", round(summary(rda_conid_5)$cont$importance[2,2]*100),  
+                     "% total variance)", sep=""), 
+          xlim = c(min(scrs[,1]), 0.2),
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))),
+          main = NA, cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(16, 17, 15, 18)
+points(si_sc,
+       col = cols[conid_expl$treatment],  # color by treatment
+       pch = pchs[conid_expl$time.point],      # shape by  timepoint
+       cex = 1.5)
+
+legend('bottomleft', 
+       legend = c("forest", "transplant", "viticulture", "April", "June", "August", "September"),
+       col = c(rep("white",3), rep('grey20', 4)),
+       text.col = c(cols, rep('grey20', 4)),
+       pch = c(rep(16, 3), 16, 15, 17, 18), bty = "n", cex=1.3)
+
+
+# connect single points per fungicide treatment and cycle
+ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border =  rep(cols, each = 4))
+dev.off()
+```
+
+##### Create figures for single time points, Figure S5
+
+time point April
+```{r}
+conid_expl_April <- conid_expl[conid_expl$time.point == "April", ]
+which(conid_expl$time.point == "April") # rows 1-30
+conid_expl_April <- droplevels(conid_expl_April)
+
+si_sc <- as.data.frame(si_sc)
+si_sc_April <- si_sc %>% slice(1:30)
+
+svg(filename="Figure_S5_A_RDA_conidia_April.svg", width=8, height=8, pointsize=12)
+p1_RDA_conid <- plot(rda_conid_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][1]),
+          ylab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][2]), 
+          xlim = c(min(scrs[,1]), 0.2),
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))),
+          main = "April", cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(16, 17, 15, 18)
+points(si_sc_April,
+       col = cols[conid_expl$treatment],  # color by treatment
+       pch = pchs[conid_expl$time.point],      # shape by  timepoint
+       cex = 1.5)
+
+# add Figure letter
+mtext("A", side = 3, line = 1, adj = 0, cex = 2)
+
+legend('bottomright',
+       legend = c("forest", "transplant", "viticulture", "April", "June", "August", "September"),
+       col = c(rep("white",3), rep('grey20', 4)),
+       text.col = c(cols, rep('grey20', 4)),
+       pch = c(rep(16, 3), 16, 15, 17, 18), bty = "n", cex=1.3)
+
+
+# connect single points per fungicide treatment and cycle
+ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border =  rep(cols, each = 4))
+dev.off()
+```
+
+time point June
+```{r}
+conid_expl_June <- conid_expl[conid_expl$time.point == "June", ]
+which(conid_expl$time.point == "June") # rows 60-88
+
+si_sc_June <- si_sc %>% slice(60:88)
+
+svg(filename="Figure_S5_B_RDA_conidia_June.svg", width=8, height=8, pointsize=12)
+p1_RDA_conid <- plot(rda_conid_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][1]),
+          ylab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][2]), 
+          xlim = c(min(scrs[,1]), 0.2),
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))),
+          main = "June", cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(15)
+points(si_sc_June,
+       col = cols[conid_expl_June$treatment],  # color by treatment
+       pch = pchs[conid_expl$time.point],      # shape by  timepoint
+       cex = 1.5)
+
+# add Figure letter
+mtext("B", side = 3, line = 1, adj = 0, cex = 2)
+
+# connect single points per fungicide treatment and cycle
+ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border =  rep(cols, each = 4))
+dev.off()
+```
+
+time point August
+```{r}
+conid_expl_August <- conid_expl[conid_expl$time.point == "August", ]
+which(conid_expl$time.point == "August") # rows 31-59
+
+si_sc_August <- si_sc %>% slice(31:59)
+
+svg(filename="Figure_S5_C_RDA_conidia_August.svg", width=8, height=8, pointsize=12)
+p1_RDA_conid <- plot(rda_conid_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][1]),
+          ylab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][2]), 
+          xlim = c(min(scrs[,1]), 0.2),
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))),
+          main = "August", cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(17)
+points(si_sc_August,
+       col = cols[conid_expl_August$treatment],  # color by treatment
+       pch = pchs[conid_expl$time.point],      # shape by  timepoint
+       cex = 1.5)
+
+# add Figure letter
+mtext("C", side = 3, line = 1, adj = 0, cex = 2)
+
+# connect single points per fungicide treatment and cycle
+ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border =  rep(cols, each = 4))
+dev.off()
+```
+
+time point September
+```{r}
+conid_expl_September <- conid_expl[conid_expl$time.point == "September", ]
+which(conid_expl$time.point == "September") # rows 31-59
+
+si_sc_September <- si_sc %>% slice(89:106)
+
+svg(filename="Figure_S5_D_RDA_conidia_September.svg", width=8, height=8, pointsize=12)
+p1_RDA_conid <- plot(rda_conid_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][1]),
+          ylab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][2]), 
+          xlim = c(min(scrs[,1]), 0.2),
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))),
+          main = "September", cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(18)
+points(si_sc_September,
+       col = cols[conid_expl_September$treatment],  # color by treatment
+       pch = pchs[conid_expl$time.point],      # shape by  timepoint
+       cex = 1.5)
+
+# add Figure letter
+mtext("D", side = 3, line = 1, adj = 0, cex = 2)
+
+# connect single points per fungicide treatment and cycle
+ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border =  rep(cols, each = 4))
+dev.off()
+```
+
+### IndVal
+identify indicator taxa for time points / treatments
+
+per time point
+```{r}
+indval_conid_tp = multipatt(conid_spor, conid_expl$time.point, 
+                   control = how(nperm=999)) 
+
+summary(indval_conid_tp, indvalcomp=TRUE) 
+```
+A = specificity or positive predictive value
+B = fidelity or sensitivity
+
+per treatment
+```{r}
+indval_conid_tr = multipatt(conid_spor, conid_expl$treatment, 
+                   control = how(nperm=999)) 
+
+summary(indval_conid_tr, indvalcomp=TRUE) 
+```
+
+per streams
+```{r}
+indval_conid_s = multipatt(conid_spor, conid_expl$stream, 
+                   control = how(nperm=999)) 
+
+summary(indval_conid_s, indvalcomp=TRUE) 
+```
+
+
+### Turnover / nestedness
+to understand changes in the fungal community better, investigate turnover and nestedness 
+use the communities of the forest treatment and April time point as reference
+
+#### calculate turnover
+
+transform dataframe to presence/absence
+```{r}
+conid_spor_pa <- conid_spor
+conid_spor_pa[conid_spor_pa > 0] <-1
+```
+
+According to Baselga (2010) turnover is best calculated using the sorensen distance
+like this we can identify a turnover (replacement) in taxa
+```{r}
+dist_sor <- beta.pair(conid_spor_pa, index.family="sorensen")
+
+turn <- reshape2::melt(as.matrix(dist_sor$beta.sim), varnames = c("row", "col"))
+```
+
+get information which row / column is which fungal community
+```{r}
+conid_expl_col <- conid_expl
+
+conid_expl_col$code <- rownames(conid_expl_col)
+```
+
+since we will compare the different fungal communities to the April forest communities, restrict the column col to these communities
+The row number of April forest communities are: 1,4,7,10, 13, 16,19,20,25,28
+```{r}
+conid_expl_for_April <- conid_expl_col[conid_expl_col$time.point == "April" & conid_expl_col$treatment == "forest", ]
+
+turn2 <- turn[ as.character(turn$col)  %in% conid_expl_for_April$code, ]
+```
+
+now connect information about treatment and timepoint to the row column
+```{r}
+turn2 <- merge(turn2, conid_expl_col, by.x = c("row"), by.y = c("code"))
+```
+
+##### create the model
+
+Statistics for the community turnover
+```{r}
+turn_lmer1 <- lmer(value ~ time.point + treatment + time.point:treatment + (1|stream), data = turn2)
+
+drop1(turn_lmer1, test = 'Chisq')
+# interaction highly significant
+
+anova(turn_lmer1)
+```
+
+```{r}
+turn_inter <- lsmeans(turn_lmer1, ~ treatment | time.point )
+
+turn_inter_dunn1 <- contrast(turn_inter, 'pairwise')
+(turn_inter_dunn_sum1 <- summary(turn_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+
+* In April, transplant and viticulture are similar, but there are differences to the forest treatment
+* In June significant differences between all treatments
+* In August only forest and transplant show a similarity
+* No differences within September
+
+Check differences between treatments across the different time points
+```{r}
+turn_inter2 <- lsmeans(turn_lmer1, ~ time.point | treatment)
+
+turn_inter_dunn2 <- contrast(turn_inter2, 'pairwise')
+(turn_inter_dunn_sum2 <- summary(turn_inter_dunn2, infer = TRUE, adjust = 'mvt'))
+```
+
+* forest + viticulture, only between June and August no difference
+* viti from April different from all other time points, no difference between other time points
+
+
+##### create Figure S3 A
+create plot of community turnover based on identification of conidia
+```{r}
+turn_CI <- group.CI(value ~ time.point + treatment,
+                   data = turn2, 
+                   ci = 0.95)
+
+# change order of factor
+turn_CI$time.point <- factor(turn_CI$time.point,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+turn_CI$treatment <- gsub("transplant", "trans.", turn_CI$treatment)
+
+
+# create significance indication
+turn_text_1 <- data.frame(treatment = "trans.", value.mean = 0.45, lab = "***", 
+                       time.point = factor("April",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti April
+turn_text_2 <- data.frame(treatment = "forest", value.mean = 0.42, lab = "**", 
+                       time.point = factor("April",levels = c("April", "June", "August", "September"))) 
+# Difference forest - transplant April
+turn_text_3 <- data.frame(treatment = "trans.", value.mean = 0.45, lab = "***", 
+                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti June
+turn_text_4 <- data.frame(treatment = "forest", value.mean = 0.42, lab = "**", 
+                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# Difference forest - transplant June
+turn_text_5 <- data.frame(treatment = "viti", value.mean = 0.43, lab = "**", 
+                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti June
+turn_text_6 <- data.frame(treatment = "trans.", value.mean = 0.45, lab = "***", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti August
+turn_text_7 <- data.frame(treatment = "viti", value.mean = 0.43, lab = "***", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti August
+
+
+turn_text <- rbind(turn_text_1, turn_text_2, turn_text_3, turn_text_4, turn_text_5, turn_text_6, turn_text_7)
+
+# lines below significance indication
+fv_turn <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.445), 4)) 
+mv_turn <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.427), 4))
+nv_turn <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.417), 4))
+
+
+p1_turn <-  ggplot(turn_CI, aes(x = treatment, y = value.mean)) +
+  geom_pointrange(data = turn_CI, aes(y = value.mean, ymin = value.lower, ymax = value.upper))+
+  geom_point(data = turn_CI, mapping = aes(y = value.mean), size = 3) +
+  facet_wrap(~time.point, nrow = 1) +
+  ylab(expression(paste(beta,"-dissimilarity (", beta [turnover],  ")"  ))) +
+  xlab("")+
+  ggtitle("Community turnover")+
+  ylim(0.1, 0.455)+
+  geom_text(data = turn_text, label = turn_text$lab, cex = 7) +#, x = taxa_text$treatment, y = taxa_text$DLM.mean) +
+  geom_line(data = fv_turn, aes(x = a, y = b)) +
+  geom_line(data = mv_turn, aes(x = a, y = b)) +
+  geom_line(data = nv_turn, aes(x = a, y = b)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title =  element_text(hjust = 0.5),strip.background = element_rect(fill="white"))
+
+p1_turn
+```
+
+
+#### calculate nestedness
+nestedness is at best calculated using the sorensen distance
+like this we can see if communities are subsets of others
+```{r}
+dist_sor <- beta.pair(conid_spor_pa, index.family="sorensen")
+
+nest_sor <- reshape2::melt(as.matrix(dist_sor$beta.sne), varnames = c("row", "col")) 
+```
+
+since we will compare the different fungal communities to the April forest communities, restrict the column col to these communities
+The rownumber of April forest communities are: 1,4,7,10, 13, 16,19,20,25,28
+```{r}
+nest_sor2 <- nest_sor[as.character(nest_sor$col)  %in% conid_expl_for_April$code, ]
+```
+
+now connect information about treatment and timepoint to the row column
+```{r}
+nest_sor2 <- merge(nest_sor2, conid_expl_col, by.x = c("row"), by.y = c("code"))
+```
+
+##### create the model
+
+Statistics for the community turnover
+```{r}
+nest_lmer1 <- lmer(value ~ time.point + treatment + time.point:treatment + (1|stream), data = nest_sor2)
+
+drop1(nest_lmer1, test = 'Chisq')
+# interaction highly significant
+
+anova(nest_lmer1)
+```
+
+
+```{r}
+nest_inter <- lsmeans(nest_lmer1, ~ treatment | time.point )
+
+nest_inter_dunn1 <- contrast(nest_inter, 'pairwise')
+(nest_inter_dunn_sum1 <- summary(nest_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+
+* In April no difference --> highly nested 
+* In June transplant is different from both other treatments, while forest and viti are nested (though taxa richness are similar in all treatments)
+* In August no difference between forest and transplant, but low nestedness to the viti treatments
+* In September no difference between forest and transplant, but low nestedness to the viti treatments
+
+Check differences between treatments across the different time points
+```{r}
+nest_inter2 <- lsmeans(nest_lmer1, ~ time.point | treatment)
+
+nest_inter_dunn2 <- contrast(nest_inter2, 'pairwise')
+(nest_inter_dunn_sum2 <- summary(nest_inter_dunn2, infer = TRUE, adjust = 'mvt'))
+```
+
+##### create Figure S3 B
+create plot of community nestedness based on identification of conidia
+```{r}
+nest_CI <- group.CI(value ~ time.point + treatment,
+                   data = nest_sor2, 
+                   ci = 0.95)
+
+# change order of factor
+nest_CI$time.point <- factor(nest_CI$time.point,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+nest_CI$treatment <- gsub("transplant", "trans.", nest_CI$treatment)
+
+
+# create significance indication
+nest_text_1 <- data.frame(treatment = "forest", value.mean = 0.44, lab = "***", 
+                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# Difference forest - transplant June
+nest_text_2 <- data.frame(treatment = "viti", value.mean = 0.45, lab = "***", 
+                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti June
+nest_text_3 <- data.frame(treatment = "trans.", value.mean = 0.475, lab = "***", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti August
+nest_text_4 <- data.frame(treatment = "viti", value.mean = 0.45, lab = "***", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti August
+nest_text_5 <- data.frame(treatment = "trans.", value.mean = 0.475, lab = "***", 
+                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# Difference forest - viti September
+nest_text_6 <- data.frame(treatment = "viti", value.mean = 0.45, lab = "***", 
+                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti September
+
+
+nest_text <- rbind(nest_text_1, nest_text_2, nest_text_3, nest_text_4, nest_text_5, nest_text_6)
+
+# lines below significance indication
+fv_nest <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.472), 4)) 
+mv_nest <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.445), 4))
+nv_nest <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.435), 4))
+
+
+p1_nest <-  ggplot(nest_CI, aes(x = treatment, y = value.mean)) +
+  geom_pointrange(data = nest_CI, aes(y = value.mean, ymin = value.lower, ymax = value.upper))+
+  geom_point(data = nest_CI, mapping = aes(y = value.mean), size = 3) +
+  facet_wrap(~time.point, nrow = 1) +
+  ylab(expression(paste(beta,"-dissimilarity (", beta [nestesness],  ")"  ))) +
+  xlab("")+
+  ggtitle("Nestedness")+
+  ylim(0.05, 0.485)+
+  geom_text(data = nest_text, label = nest_text$lab, cex = 7) +#, x = taxa_text$treatment, y = taxa_text$DLM.mean) +
+  geom_line(data = fv_nest, aes(x = a, y = b)) +
+  geom_line(data = mv_nest, aes(x = a, y = b)) +
+  geom_line(data = nv_nest, aes(x = a, y = b)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title =  element_text(hjust = 0.5),strip.background = element_rect(fill="white"))
+
+p1_nest
+
+# unnecessary lines for significance will be removed manually in the vector graphic
+```
+
+save plots
+```{r}
+fig_S3_beta_diss <-ggarrange(p1_turn, p1_nest, nrow = 2,labels = c("A","B"))
+
+svg(filename="Figure_S3_beta_diss.svg", width=10, height=15, pointsize=12)
+fig_S3_beta_diss
+dev.off()
+```
+
+
+
+## Metabarcoding
+information retrieved from metabarcoding
+
+See additional R script to create the used data
+
+### Prepare data
+read in data
+```{r}
+DNA <- read.table("5_ITS_DataProp.csv", sep=",", header=TRUE, dec=".",  na.string="NA" , check.names=FALSE)
+# for creation of this file, see additional R script
+
+DNA$treatment <- as.factor(DNA$treatment)
+DNA$timepoint <- as.factor(DNA$timepoint)
+DNA$Stream <- as.factor(DNA$Stream)
+```
+
+remove coarse data
+```{r}
+DNA <- DNA[!DNA$type == "coarse", ]
+```
+
+change order of factor + rename treament
+```{r}
+DNA$timepoint <- factor(DNA$timepoint,
+                             levels = c("April", "June", "August", "September"))
+DNA$treatment <- gsub("move", "transplant", DNA$treatment)
+DNA$treatment <- gsub("vine", "viti", DNA$treatment)
+```
+
+separate explanatory variables from DNA information (for all fungi)
+```{r}
+# for all fungi
+DNA_fung <- DNA[-c(1:6)]
+DNA_expl <- DNA[c(2,3, 5) ]
+DNA_expl$treatment <- as.factor(DNA_expl$treatment)
+```
+
+reduce the dataset to hyphomycetes
+```{r}
+DNA_ASVs <- read.table("6_ITS_Taxonomy_AH.csv", sep=",", header=TRUE, dec=".",  na.string="NA" , check.names=FALSE) 
+names(DNA_ASVs)[1] <- c("ASV")
+DNA_ASVs_hyph <- DNA_ASVs[DNA_ASVs$AQH == "Y", ]
+
+DNA_hyph <- DNA
+DNA_hyph <- DNA_hyph[, names(DNA_hyph) %in% DNA_ASVs_hyph$ASV]
+# now remove those taxa from the list, which do not occur in the reads list any more
+DNA_ASVs_hyph <- DNA_ASVs_hyph[DNA_ASVs_hyph$ASV %in% names(DNA_hyph), ]
+
+DNA_hyph_exp <- cbind(DNA_expl, DNA_hyph)
+```
+
+assort ASVs to ITS taxa
+```{r}
+DNA_taxa_names <- DNA_ASVs_hyph
+DNA_taxa_names <- DNA_taxa_names[,c("Genus", "Species", "ASV")]
+DNA_taxa_names$Genus <- gsub("g__", "", DNA_taxa_names$Genus)
+DNA_taxa_names$Species <- gsub("s__", "", DNA_taxa_names$Species)
+DNA_taxa_names$taxon <- paste(DNA_taxa_names$Genus,DNA_taxa_names$Species)
+DNA_taxa_names$taxon <- gsub("NA", "sp.", DNA_taxa_names$taxon)
+```
+
+combine the different ASVs which were assigned to the same ITS taxon
+```{r}
+DNA_ASV_Single <- DNA_hyph
+
+DNA_taxasumall <- DNA_expl 
+
+# separate in taxa which are only assigned to one ASV and to multiple
+DNA_taxa_names_count <- dplyr::count(DNA_taxa_names, taxon)  
+DNA_taxa_names_single <- DNA_taxa_names[!DNA_taxa_names$taxon %in% DNA_taxa_names_count[DNA_taxa_names_count$n > 1,]$taxon, ] # 15 taxa
+DNA_taxa_names_multiple <- DNA_taxa_names[DNA_taxa_names$taxon %in% DNA_taxa_names_count[DNA_taxa_names_count$n > 1,]$taxon, ] # 21 taxa
+
+for(i in 1:length(unique(DNA_taxa_names_multiple$taxon))) {
+  
+  y <- unique(DNA_taxa_names_multiple$taxon)[i]
+
+DNA_taxasum <- as.data.frame(rowSums(DNA_ASV_Single[, names(DNA_ASV_Single) %in% DNA_taxa_names_multiple[DNA_taxa_names_multiple$taxon == y,]$ASV]) )
+                     
+names(DNA_taxasum)[1] <- y
+
+DNA_taxasumall <- cbind(DNA_taxasumall, DNA_taxasum)
+}
+
+# now add the taxa which are only assigned to one ASV
+# filter only for those ASVs
+DNA_taxa_single <- DNA_ASV_Single[, names(DNA_ASV_Single) %in% DNA_taxa_names_single$ASV]
+# rename all those ASVs (with taxa names)
+
+oldnames = DNA_taxa_names_single$ASV
+newnames = DNA_taxa_names_single$taxon
+
+DNA_taxa_single <- DNA_taxa_single %>% 
+  rename_with(~ newnames[which(all_of(oldnames) == .x)], .cols = oldnames)
+
+# add to other table
+DNA_taxasumall <- cbind(DNA_taxasumall, DNA_taxa_single)
+
+rowSums(DNA_taxasumall[4:ncol(DNA_taxasumall)])
+```
+
+### community composition all fungi
+identified via metabarcoding, only on ASV level
+#### make ANOVAs
+Create several ANOVAs with different numbers and composition of explanatory variables, to be able to calculate effects sizes and p-values individually for each explanatory variable.
+```{r}
+rda_DNA_1 <- rda(decostand(DNA_fung, "hellinger") 
+                        ~ timepoint +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_1, display = NULL)
+anova(rda_DNA_1, by = "margin")
+# timepoint  3 0.062609 7.1573  0.001 ***
+# 12.9% explained variance (see at summary, proportion constrained)
+
+rda_DNA_2 <- rda(decostand(DNA_fung, "hellinger") 
+                        ~ treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_2, display = NULL)
+anova(rda_DNA_2, by = "margin")
+#  treatment  2 0.020679 3.1  0.001 ***
+# 4.25 % explained
+
+rda_DNA_3 <- rda(decostand(DNA_fung, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_3, display = NULL)
+anova(rda_DNA_3, by = "margin")
+# timepoint  3  0.06280 7.6156  0.001 ***
+# treatment  2  0.02087 3.7963  0.001 ***
+# both together explains 17.2%
+
+rda_DNA_4 <- rda(decostand(DNA_fung, "hellinger") 
+                        ~ timepoint + treatment + timepoint:treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_4, display = NULL)
+anova(rda_DNA_4, by = "margin")
+# timepoint:treatment  6 0.018512 1.1324  0.181
+# adding an interaction explains 21.9% of variance
+# interaction is not significant! Use less complex model for next steps
+
+# Model for plot
+rda_DNA_5 <- rda(decostand(DNA_fung, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_5, display = NULL)
+anova.cca(rda_DNA_5, step = 1000) # model is significant, F-value:7.365
+anova.cca(rda_DNA_5, step = 1000, by = "terms")
+# model explains 52% 
+# of this 31 % of the condition (the random factor stream)
+# in contrast to the conidia the factor stream is way more important when using DNA
+
+#                      Df Variance       F Pr(>F)    
+# timepoint   3 0.072846 9.7571  0.001 ***
+# treatment   2 0.018799 3.7769  0.001 ***
+```
+
+#### create RDA Figure S6 C
+```{r}
+scl = 'symmetric'
+# arrange size of single plot
+si_sc <- scores(rda_DNA_5, choices = 1:2, scaling = scl, display = 'sites')
+sp_sc <- scores(rda_DNA_5, choices = 1:2, scaling = scl, display = 'species')
+va_sc <- scores(rda_DNA_5, choices = 1:2, scaling = scl, display = 'cn')
+
+scrs <- scores(rda_DNA_5, display = c("sites"), scaling = scl)
+
+png(filename="Figure_S6_C_RDA_DNA_all_fungi.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+p_DNA <- plot(rda_DNA_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_DNA_5)$cont$importance)$dimnames[[2]][1],
+                     " (", round(summary(rda_DNA_5)$cont$importance[2,1]*100),  
+                     "% total variance)", sep=""),
+          ylab = 
+            paste(attributes(summary(rda_DNA_5)$cont$importance)$dimnames[[2]][2],
+                     " (", round(summary(rda_DNA_5)$cont$importance[2,2]*100),  
+                     "% total variance)", sep=""), 
+          xlim = c(min(scrs[,1]) + ((8/10) *  min(scrs[,1])), max(scrs[,1])), 
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))), 
+          main = "all fungi ASV", cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(16, 17, 15, 18)
+points(si_sc,
+       col = cols[DNA_expl$treatment],  # color by treatment
+       pch = pchs[DNA_expl$timepoint],      # shape by  timepoint
+       cex = 1.5)
+
+# don't add legend as this is already in figure A
+
+# add Figure letter
+mtext("C", side = 3, line = 1, adj = 0, cex = 2)
+
+# connect single points per fungicide treatment and cycle
+ordihull(p_DNA, interaction(DNA_expl$timepoint, DNA_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border = rep(cols, each = 4))
+dev.off()
+```
+
+
+### ASVs richness of all fungi
+calculate richness of determined Amplicon Sequence Variants (ASVs) (i.e. all detected ASVs in one sample)
+```{r}
+DNA$ASV_rich <- apply(DNA[7:ncol(DNA)], 1, function(x) sum(x > 0))
+```
+
+
+```{r}
+ASV <- DNA[ , c("Stream", "treatment", "timepoint", "ASV_rich")]
+
+ASV_lmer1 <- glmer(ASV_rich ~ timepoint + treatment + timepoint:treatment + (treatment|Stream), data = ASV, family = "poisson")
+
+drop1(ASV_lmer1, test = 'Chisq')
+# interaction is significant p = 0.01574  
+anova(ASV_lmer1)
+```
+
+```{r}
+ASV_inter <- lsmeans(ASV_lmer1, ~ treatment | timepoint )
+
+ASV_inter_dunn1 <- contrast(ASV_inter, 'pairwise')
+(ASV_inter_dunn_sum1 <- summary(ASV_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+* April:  \
+  + no significant difference \
+* June: \
+  + no significant difference \
+* August \
+  +  tendency between transplant and viti\
+* September: \
+  + no significant difference  \
+
+#### create Figure S4 D
+create plot of decomposition data
+```{r}
+ASV_CI <- group.CI(ASV_rich ~ timepoint + treatment,
+                   data = DNA,
+                   ci = 0.95)
+
+# change order of factor
+ASV_CI$time.point <- factor(ASV_CI$timepoint,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+ASV_CI$treatment <- gsub("transplant", "trans.", ASV_CI$treatment)
+
+# add one tendency to plot
+taxa_text <- data.frame(treatment = "viti", ASV_rich.mean = 85, lab = "\U25AA", 
+                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# Difference trans. - viti August
+mv_taxa <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(83), 4))
+
+
+p1_ASV <-  ggplot(ASV_CI, aes(x = treatment, y = ASV_rich.mean)) +
+  geom_pointrange(data = ASV_CI, aes(y = ASV_rich.mean, ymin = ASV_rich.lower, ymax = ASV_rich.upper))+
+  geom_point(data = ASV_CI, mapping = aes(y = ASV_rich.mean), size = 3) +
+  facet_wrap(~time.point, nrow = 1) +
+  ylab('ASV richness')+
+  xlab("")+
+  ggtitle("ASVs all fungi (metabarcoding)")+
+  #ylim(2, 22)+
+  geom_text(data = taxa_text, label = taxa_text$lab, cex = 7) +#, x = taxa_text$treatment, y = taxa_text$DLM.mean) +
+  geom_line(data = mv_taxa, aes(x = a, y = b)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title =  element_text(hjust = 0.5),strip.background = element_rect(fill="white"))
+
+p1_ASV
+# remove additional lines manually in vector graph
+```
+
+### community composition only hyphomycetes ASVs
+based on metabarcoding
+#### make Anovas
+Create several Anovas with different numbers and composition of explanatory variables, to be able to calculate effects sizes and p-values individually for each explanatory variable.
+
+```{r}
+rda_DNA_hyph_1 <- rda(decostand(DNA_hyph, "hellinger") 
+                        ~ timepoint +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_hyph_1, display = NULL)
+anova(rda_DNA_hyph_1, by = "margin")
+# timepoint  3  0.07082 6.3618  0.001 ***
+# 11.1% explained variance (see at summary, proportion constrained)
+
+rda_DNA_hyph_2 <- rda(decostand(DNA_hyph, "hellinger") 
+                        ~ treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_hyph_2, display = NULL)
+anova(rda_DNA_hyph_2, by = "margin")
+#  treatment  2  0.04138 5.1897  0.001 ***
+# 6.5 % explained
+
+rda_DNA_hyph_3 <- rda(decostand(DNA_hyph, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_hyph_3, display = NULL)
+anova(rda_DNA_hyph_3, by = "margin")
+# timepoint  3 0.071034 7.1087  0.001 ***
+# treatment  2 0.041600 6.2447  0.001 ***
+anova(rda_DNA_hyph_3)
+# both together explains 17.7%
+
+rda_DNA_hyph_4 <- rda(decostand(DNA_hyph, "hellinger") 
+                        ~ timepoint + treatment + timepoint:treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_hyph_4, display = NULL)
+anova(rda_DNA_hyph_4, by = "margin")
+# timepoint:treatment  6 0.022902 1.158   0.17
+# adding an interaction explains 21.2% of variance
+# interaction is not significant! Use less complex model for next steps
+
+# model for RDA
+rda_DNA_hyph_5 <- rda(decostand(DNA_hyph, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_hyph_5, display = NULL)
+anova.cca(rda_DNA_hyph_5, step = 1000) # model is significant + the best model of all
+anova.cca(rda_DNA_hyph_5, step = 1000, by = "terms")
+# model explains 53% 
+# of this 35 % of the condition (the random factor stream)
+# in contrast to the conidia the factor stream are way more important when using DNA
+
+#                      Df Variance       F Pr(>F)    
+# timepoint   3 0.068978 8.1583  0.001 ***
+# treatment   2 0.035496 6.2974  0.001 ***
+```
+
+#### conduct pairwise comparison with rda data
+```{r}
+multiconstrained(method="rda", decostand(DNA_hyph, "hellinger") 
+                        ~ timepoint + treatment + Condition(Stream), data = DNA_expl, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="treatment", contrast=0)
+#                 Df SumOfSqs      F Pr(>F)    
+# forest vs. transplant  4 0.018380 10.1933  0.001 ***
+# forest vs. viti        4 0.018231  7.7462  0.001 ***
+# transplant vs. viti    4 0.010392  5.0004  0.001 ***
+
+multiconstrained(method="rda", decostand(DNA_hyph, "hellinger") 
+                        ~ timepoint + treatment  +  Condition(Stream), data = DNA_expl, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="timepoint", contrast=0)
+#                      Df SumOfSqs      F Pr(>F)    
+# April vs. June        3 0.0049087 4.2694  0.001 ***
+# April vs. August      3 0.0074121 4.3483  0.001 ***
+# April vs. September   3 0.0199513 7.0149  0.001 ***
+# June vs. August       3 0.0031113 2.8762  0.016 *  
+# June vs. September    3 0.0190364 7.6989  0.001 ***
+# August vs. September  3 0.0101528 4.2968  0.004 ** 
+```
+All treatments and time points significantly differnt
+
+now repeat this for each combination
+```{r}
+DNA_expl_interact <- DNA_expl
+DNA_expl_interact$time_treat <- paste(DNA_expl_interact$timepoint, DNA_expl_interact$treatment)
+
+multiconstrained(method="rda", decostand(DNA_hyph, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl_interact, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="time_treat", contrast=0)
+```
+* April strong tendency that it is differently then other time points (with exception of September) \
+* April viti significantly different then transplant and forest
+* within August no significant difference (but in Figure a differences appears to be there) \
+
+#### create RDA Figure S6 B
+```{r}
+scl = 'symmetric'
+# arrange size of single plot
+si_sc <- scores(rda_DNA_hyph_5, choices = 1:2, scaling = scl, display = 'sites')
+sp_sc <- scores(rda_DNA_hyph_5, choices = 1:2, scaling = scl, display = 'species')
+va_sc <- scores(rda_DNA_hyph_5, choices = 1:2, scaling = scl, display = 'cn')
+
+scrs <- scores(rda_DNA_hyph_5, display = c("sites"), scaling = scl)
+
+png(filename="Figure_S6_B_RDA_DNA_Hyph_ASVs.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+p_DNA_hyph <- plot(rda_DNA_hyph_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_DNA_hyph_5)$cont$importance)$dimnames[[2]][1],
+                     " (", round(summary(rda_DNA_hyph_5)$cont$importance[2,1]*100),  
+                     "% total variance)", sep=""),
+          ylab = 
+            paste(attributes(summary(rda_DNA_hyph_5)$cont$importance)$dimnames[[2]][2],
+                     " (", round(summary(rda_DNA_hyph_5)$cont$importance[2,2]*100),  
+                     "% total variance)", sep=""), 
+          xlim = c(min(scrs[,1]) + ((8/10) *  min(scrs[,1])), 0.3), 
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))), 
+          main = "hyphomycete AVS", cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(16, 17, 15, 18)
+points(si_sc,
+       col = cols[DNA_expl$treatment],  # color by treatment
+       pch = pchs[DNA_expl$timepoint],      # shape by  timepoint
+       cex = 1.5)
+
+# add Figure letter
+mtext("B", side = 3, line = 1, adj = 0, cex = 2)
+
+# connect single points per fungicide treatment and cycle
+ordihull(p_DNA_hyph, interaction(DNA_expl$timepoint, DNA_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border = rep(cols, each = 4))
+dev.off()
+```
+
+### richness of ASVs only hyphomycetes
+calculate richness of determined Amplicon Sequence Variants (ASVs) (i.e. all detected ASVs in one sample)
+```{r}
+DNA_hyph_exp$ASV_hyph_rich <- apply(DNA_hyph_exp[4:ncol(DNA_hyph_exp)], 1, function(x) sum(x > 0))
+```
+
+```{r}
+ASV_hyph <- DNA_hyph_exp[ , c("Stream", "treatment", "timepoint", "ASV_hyph_rich")]
+
+ASV_hyph_lmer1 <- glmer(ASV_hyph_rich ~ timepoint + treatment + timepoint:treatment + (1|Stream), data = ASV_hyph, family = "poisson")
+
+summary(ASV_hyph_lmer1)
+drop1(ASV_hyph_lmer1, test = 'Chisq')
+# interaction is not significant
+
+# redo a simplified model
+ASV_hyph_lmer2 <- glmer(ASV_hyph_rich ~ timepoint + treatment + (1|Stream), data = ASV_hyph, family = "poisson")
+
+summary(ASV_hyph_lmer2)
+drop1(ASV_hyph_lmer2, test = 'Chisq')
+# time point is significant
+# timepoint    3 632.64 41.296 5.66e-09 ***
+# treatment    2 595.15  1.810   0.4046    
+
+anova(ASV_hyph_lmer2)
+```
+
+investigate species_total 
+```{r}
+hist(DNA_hyph_exp$ASV_hyph_rich) 
+```
+distribution normally distributed. 
+
+inspect ASV richness (only hyphomycetes)
+```{r}
+# April
+boxplot(DNA_hyph_exp$ASV_hyph_rich[DNA_hyph_exp$timepoint=="April"] ~ DNA$treatment[DNA_hyph_exp$timepoint=="April"], main = "ASV_hyph richness April", xlab="treatment", ylab = "number ASV_hyph")
+
+# June
+boxplot(DNA_hyph_exp$ASV_hyph_rich[DNA_hyph_exp$timepoint=="June"] ~ DNA_hyph_exp$treatment[DNA_hyph_exp$timepoint=="June"], main = "ASV_hyph richness June", xlab="treatment", ylab = "number ASV_hyph")
+
+# August
+boxplot(DNA_hyph_exp$ASV_hyph_rich[DNA_hyph_exp$timepoint=="August"] ~ DNA_hyph_exp$treatment[DNA_hyph_exp$timepoint=="August"], main = "ASV_hyph richness August", xlab="treatment", ylab = "number ASV_hyph")
+
+# September
+boxplot(DNA_hyph_exp$ASV_hyph_rich[DNA_hyph_exp$timepoint=="September"] ~ DNA_hyph_exp$treatment[DNA_hyph_exp$timepoint=="September"], main = "ASV_hyph richness September", xlab="treatment", ylab = "number ASV_hyph")
+```
+
+```{r}
+ASV_hyph_inter <- lsmeans(ASV_hyph_lmer2, ~ treatment | timepoint )
+
+ASV_hyph_inter_dunn1 <- contrast(ASV_hyph_inter, 'pairwise')
+(ASV_hyph_inter_dunn_sum1 <- summary(ASV_hyph_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+all timepoints no significant difference
+
+```{r}
+ASV_hyph_inter2 <- lsmeans(ASV_hyph_lmer2, ~ timepoint) # reduced comparison, since neither interaction nor treatment were significant
+
+ASV_hyph_inter_dunn2 <- contrast(ASV_hyph_inter2, 'pairwise')
+(ASV_hyph_inter_dunn_sum2 <- summary(ASV_hyph_inter_dunn2, infer = TRUE, adjust = 'mvt'))
+```
+
+#### create Figure S4 C
+```{r}
+ASV_hyph_CI <- group.CI(ASV_hyph_rich ~ timepoint + treatment,
+                   data = DNA_hyph_exp,
+                   ci = 0.95)
+
+# change order of factor
+ASV_hyph_CI$time.point <- factor(ASV_hyph_CI$timepoint,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+ASV_hyph_CI$treatment <- gsub("transplant", "trans.", ASV_hyph_CI$treatment)
+
+
+p1_ASV_hyph <-  ggplot(ASV_hyph_CI, aes(x = treatment, y = ASV_hyph_rich.mean)) +
+  geom_pointrange(data = ASV_hyph_CI, aes(y = ASV_hyph_rich.mean, ymin = ASV_hyph_rich.lower, ymax = ASV_hyph_rich.upper))+
+  geom_point(data = ASV_hyph_CI, mapping = aes(y = ASV_hyph_rich.mean), size = 3) +
+  facet_wrap(~timepoint, nrow = 1) +
+  ylab('ASV richness')+
+  xlab("")+
+  ggtitle("ASVs hyphomycetes (metabarcoding)")+
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title = element_text(hjust = 0.5),strip.background = element_rect(fill="white"))
+
+p1_ASV_hyph
+```
+
+### community composition only hyphomycetes ITS level
+#### make Anovas
+Create several Anovas with different numbers and composition of explanatory variables, to be able to calculate effects sizes and p-values individually for each explanatory variable.
+```{r}
+DNA_taxa_hyph <- DNA_taxasumall[-c(1:3)]
+
+rda_DNA_taxa_hyph_1 <- rda(decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ timepoint +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_taxa_hyph_1, display = NULL)
+anova(rda_DNA_taxa_hyph_1, by = "margin")
+# timepoint  3 0.087532 11.911  0.001 ***
+# 18.9% explained variance (see at summary, proportion constrained)
+
+rda_DNA_taxa_hyph_2 <- rda(decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_taxa_hyph_2, display = NULL)
+anova(rda_DNA_taxa_hyph_2, by = "margin")
+#  treatment  2 0.036186 6.081  0.001 ***
+# 7.80 % explained
+
+rda_DNA_taxa_hyph_3 <- rda(decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_taxa_hyph_3, display = NULL)
+anova(rda_DNA_taxa_hyph_3, by = "margin")
+# timepoint  3 0.087895 13.9657  0.001 ***
+# treatment  2 0.036549  8.7109  0.001 ***
+# both together explains 26.7%
+
+rda_DNA_taxa_hyph_4 <- rda(decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ timepoint + treatment + timepoint:treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_taxa_hyph_4, display = NULL)
+anova(rda_DNA_taxa_hyph_4, by = "margin")
+# timepoint:treatment  6 0.014552 1.1692  0.247
+# adding an interaction explains 29.9% of variance
+# interaction is not significant! Use less complex model for next steps
+
+# model for RDA
+rda_DNA_taxa_hyph_5 <- rda(decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl)
+summary(rda_DNA_taxa_hyph_5, display = NULL)
+anova.cca(rda_DNA_taxa_hyph_5, step = 1000) # model is significant + the best model of all
+anova.cca(rda_DNA_taxa_hyph_5, step = 1000, by = "terms")
+# model explains 59% 
+# of this 34 % of the condition (the random factor stream)
+# in contrast to the conidia the factor stream are way more important when using DNA
+
+#                      Df Variance       F Pr(>F)    
+# timepoint   3 0.081939 15.4328  0.001 ***
+# treatment   2 0.031476  8.8926  0.001 ***
+```
+
+#### conduct pairwise comparison with RDA data
+```{r}
+multiconstrained(method="rda", decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ timepoint + treatment + Condition(Stream), data = DNA_expl, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="treatment", contrast=0)
+#                 Df SumOfSqs      F Pr(>F)    
+# forest vs. transplant  4 0.023793 12.0593  0.001 ***
+# forest vs. viti        4 0.024285  9.5623  0.001 ***
+# transplant vs. viti    4 0.014864  6.5117  0.001 ***
+
+multiconstrained(method="rda", decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ timepoint + treatment  +  Condition(Stream), data = DNA_expl, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="timepoint", contrast=0)
+#                      Df SumOfSqs      F Pr(>F)    
+# April vs. June        3 0.0078039 6.7134  0.001 ***
+# April vs. August      3 0.0122228 6.9089  0.001 ***
+# April vs. September   3 0.0258171 8.2907  0.001 ***
+# June vs. August       3 0.0041221 3.4617  0.005 ** 
+# June vs. September    3 0.0237570 8.3585  0.001 ***
+# August vs. September  3 0.0125222 4.5246  0.003 ** 
+```
+All treatments and time points significantly different
+
+repeat analysis for each combination
+```{r}
+DNA_expl_interact <- DNA_expl
+DNA_expl_interact$time_treat <- paste(DNA_expl_interact$timepoint, DNA_expl_interact$treatment)
+
+multiconstrained(method="rda", decostand(DNA_taxa_hyph, "hellinger") 
+                        ~ timepoint + treatment +  Condition(Stream), data = DNA_expl_interact, distance = "bray"
+    , comm = NULL, add = TRUE, multicomp="time_treat", contrast=0)
+```
+
+* April clearly different then other months \
+* in August no treatment effect \
+* June significantly different then other months \
+* in September only forest and viti significantly different \
+
+
+#### create RDA Figure S6 A
+```{r}
+scl = 'symmetric'
+# arrange size of single plot
+si_sc <- scores(rda_DNA_taxa_hyph_5, choices = 1:2, scaling = scl, display = 'sites')
+sp_sc <- scores(rda_DNA_taxa_hyph_5, choices = 1:2, scaling = scl, display = 'species')
+va_sc <- scores(rda_DNA_taxa_hyph_5, choices = 1:2, scaling = scl, display = 'cn')
+
+
+scrs <- scores(rda_DNA_taxa_hyph_5, display = c("sites"), scaling = scl)
+
+png(filename="Figure_S6_A_RDA_DNA_hyph.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+p_DNA_taxa_hyph <- plot(rda_DNA_taxa_hyph_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_DNA_taxa_hyph_5)$cont$importance)$dimnames[[2]][1],
+                     " (", round(summary(rda_DNA_taxa_hyph_5)$cont$importance[2,1]*100),  
+                     "% total variance)", sep=""),
+          ylab = 
+            paste(attributes(summary(rda_DNA_taxa_hyph_5)$cont$importance)$dimnames[[2]][2],
+                     " (", round(summary(rda_DNA_taxa_hyph_5)$cont$importance[2,2]*100),  
+                     "% total variance)", sep=""), 
+          xlim = c(min(scrs[,1]) + ((8/10) *  min(scrs[,1])), max(scrs[,1])), 
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))), 
+          main = "hyphomycetes metabarcoding", cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(16, 17, 15, 18)
+points(si_sc,
+       col = cols[DNA_expl$treatment],  # color by treatment
+       pch = pchs[DNA_expl$timepoint],      # shape by  timepoint
+       cex = 1.5)
+
+legend('bottomleft', 
+       legend = c("forest", "transplant", "viticulture", "April", "June", "August", "September"),
+       col = c(cols, rep('grey20', 4)),
+       pch = c(rep(16, 3), 16, 15, 17, 18), bty = "n", cex=1.3)
+
+# add Figure letter
+mtext("A", side = 3, line = 1, adj = 0, cex = 2)
+
+# connect single points per fungicide treatment and cycle
+ordihull(p_DNA_taxa_hyph, interaction(DNA_expl$timepoint, DNA_expl$treatment), 
+           col = rep(cols, each = 4), label = F, draw = "polygon", border = rep(cols, each = 4))
+dev.off()
+```
+
+
+### taxa richness based on DNA
+of those ASVs assigned to hyphomycetes
+```{r}
+DNA_taxasumall$taxa_rich <- apply(DNA_taxasumall[4:ncol(DNA_taxasumall)], 1, function(x) sum(x > 0))
+```
+
+
+```{r}
+DNA_rich <- DNA_taxasumall[ , c("Stream", "treatment", "timepoint", "taxa_rich")]
+
+DNA_rich_lmer1 <- glmer(taxa_rich ~ timepoint + treatment + timepoint:treatment + (1|Stream), data = DNA_rich, family = "poisson")
+
+drop1(DNA_rich_lmer1, test = 'Chisq')
+# interaction is not significant
+
+# redo a simplified model
+DNA_rich_lmer2 <- glmer(taxa_rich ~ timepoint + treatment + (1|Stream), data = DNA_rich, family = "poisson")
+
+drop1(DNA_rich_lmer2, test = 'Chisq')
+# time point is significant
+# timepoint    3 571.74 23.6169 3.003e-05 ***
+# treatment    2 554.56  4.4384    0.1087     
+
+anova(DNA_rich_lmer2)
+```
+
+investigate species_total 
+```{r}
+hist(DNA_rich$taxa_rich) 
+```
+distribution more or less normally distributed. 
+
+```{r}
+DNA_rich_inter <- lsmeans(DNA_rich_lmer2, ~ treatment | timepoint )
+
+DNA_rich_inter_dunn1 <- contrast(DNA_rich_inter, 'pairwise')
+(DNA_rich_inter_dunn_sum1 <- summary(DNA_rich_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+within time points no significant difference. Only tendencies between transplant and cone of all four time points
+
+since only time point was significant check differences between time points
+```{r}
+DNA_rich_inter2 <- lsmeans(DNA_rich_lmer2, ~ timepoint)
+
+DNA_rich_inter_dunn2 <- contrast(DNA_rich_inter2, 'pairwise')
+(DNA_rich_inter_dunn_sum2 <- summary(DNA_rich_inter_dunn2, infer = TRUE, adjust = 'mvt'))
+```
+Significant differences between April and August + September, and June and September
+
+#### create Figure S4 B
+create plot of taxa richness of hyphymycetes identified via metabarcoding
+```{r}
+tax_DNA_CI <- group.CI(taxa_rich ~ timepoint + treatment,
+                   data = DNA_rich,
+                   ci = 0.95)
+
+# change order of factor
+tax_DNA_CI$time.point <- factor(tax_DNA_CI$timepoint,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+tax_DNA_CI$treatment <- gsub("transplant", "trans.", tax_DNA_CI$treatment)
+ 
+
+p1_tax_DNA <-  ggplot(tax_DNA_CI, aes(x = treatment, y = taxa_rich.mean)) +
+  geom_pointrange(data = tax_DNA_CI, aes(y = taxa_rich.mean, ymin = taxa_rich.lower, ymax = taxa_rich.upper))+
+  geom_point(data = tax_DNA_CI, mapping = aes(y = taxa_rich.mean), size = 3) +
+  facet_wrap(~timepoint, nrow = 1) +
+  ylab('taxa richness')+
+  xlab("")+
+  ggtitle("Hyphomycetes (metabarcoding)")+
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title = element_text(hjust = 0.5),strip.background = element_rect(fill="white"))
+
+p1_tax_DNA
+```
+
+save one figures with all richness plots
+```{r}
+fig_S4_richness <-ggarrange(p1_taxa, p1_tax_DNA, p1_ASV_hyph, p1_ASV, nrow = 4,labels = c("A","B", "C", "D"))
+
+
+svg(filename="Figure_S4_richness.svg", width=10, height=30, pointsize=12)
+fig_S4_richness
+dev.off()
+
+# p1_taxa # A
+# p1_tax_DNA # B
+# p1_ASV_hyph # C
+# p1_ASV # D
+
+```
+
+
+### IndVal
+#### species level via metabarcoding
+identify indicator taxa for timepoints / treatments
+
+for time point
+```{r}
+indval_DNA_tp = multipatt(DNA_taxa_hyph, DNA_expl$timepoint, 
+                   control = how(nperm=999)) 
+
+summary(indval_DNA_tp, indvalcomp=TRUE) 
+```
+A = specificity or positive predictive value
+B = fidelity or sensitivity
+
+for treatment
+```{r}
+indval_DNA_tr = multipatt(DNA_taxa_hyph, DNA_expl$treatment, 
+                   control = how(nperm=999)) 
+
+summary(indval_DNA_tr, indvalcomp=TRUE) 
+```
+
+for streams
+```{r}
+indval_DNA_s = multipatt(DNA_taxa_hyph, DNA_expl$Stream, 
+                   control = how(nperm=999)) 
+
+summary(indval_DNA_s, indvalcomp=TRUE) 
+```
+
+#### ASVs
+identify indicator ASVs for timepoints / treatments
+
+for time point
+```{r}
+indval_DNA_tp = multipatt(DNA_hyph, DNA_expl$timepoint, 
+                   control = how(nperm=999)) 
+
+summary(indval_DNA_tp, indvalcomp=TRUE) 
+```
+A = specificity or positive predictive value
+B = fidelity or sensitivity
+
+for treatment
+```{r}
+indval_DNA_tr = multipatt(DNA_hyph, DNA_expl$treatment, 
+                   control = how(nperm=999)) 
+
+summary(indval_DNA_tr, indvalcomp=TRUE) 
+```
+
+for streams
+```{r}
+indval_DNA_s = multipatt(DNA_hyph, DNA_expl$Stream, 
+                   control = how(nperm=999)) 
+
+summary(indval_DNA_s, indvalcomp=TRUE) 
+```
+
+
