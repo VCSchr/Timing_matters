@@ -22,7 +22,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Timing matters: Land use determines temporal dynamics in structure and function of fungal communities in streams {-}
+# Timing matters: Viticultural land use determines responses in structure and function of fungal stream communities across one growing season {-}
 
 Verena C. Schreiner, Moritz Link, Gesa Amelung, Katharina Ohler, Romana Salis, Florain Leese & Ralf B. Schäfer
 
@@ -51,18 +51,18 @@ The study was conducted with three treatments and across four time points
 # Tools / Packages
 
 ```{r, message=FALSE, warning=FALSE}
-library(plyr) # data wrangling, version 1.8.7
-library(dplyr) # data wrangling, version 1.1.2
-library(vegan) # create RDA plots, version 2.6-4
-library(lme4) # create LMM, version 1.1-34
-library(emmeans) # conduct pairwise comparisons of LMM between treatments of one time point, version 1.8.0
-library(DAAG) # check QQ plots, version 1.25.4
+library(plyr) # data wrangling, version 1.8.9
+library(dplyr) # data wrangling, version 1.1.4
+library(vegan) # create RDA plots, version 2.6-8
+library(lme4) # create LMM, version 1.1-35.5
+library(emmeans) # conduct pairwise comparisons of LMM between treatments of one time point, version 1.10.5
+library(DAAG) # check QQ plots, version 1.25.6
 library(Rmisc) # calculate CI, version 1.5.1
 library(ggplot2) # create plots, version 3.4.3
-library(BiodiversityR) # conduct pairwise comparisons of the RDA analysis, version 2.14-4
-library(indicspecies) # For IndVal analysis, version 1.7.12
-library(ggpubr) # arrange plots, version 0.4.0
-library(betapart) # for tunover and nestedness calculations, version
+library(BiodiversityR) # conduct pairwise comparisons of the RDA analysis, version 2.16-1
+library(indicspecies) # For IndVal analysis, version 1.7.15
+library(ggpubr) # arrange plots, version 0.6.0
+library(betapart) # for tunover and nestedness calculations, version 1.6
 ```
 
 set your path 
@@ -215,7 +215,7 @@ remove unnecessary columns
 leaf_weight <- leaf_weight[c("stream", "treatment", "time.point", "replicate","number.days", "afdm_start", "afdm_end")]
 ```
 
-## calculate DLM (decomposed leaf mass)
+### calculate DLM (decomposed leaf mass)
 ### add temperatures
 add mean temperatures during exposure, based on logger data
 ```{r}
@@ -246,7 +246,7 @@ Add temperature information to leaf masses (by time.point, stream and treatment)
 leaf_weight <- join(leaf_weight, mean_temp, by=c("time.point","stream", "treatment"), type = "left")
 ```
 
-For the transplant treatment, the temperature was calculated as weighted means based on the exposure temperatures during the deploxments at the respective sites.
+For the transplant treatment, the temperature was calculated as weighted means based on the exposure temperatures during the deployments at the respective sites.
 
 ### calculation
 
@@ -262,9 +262,13 @@ The data from this endpoint are % of lost leaf mass, divided with number degreed
 leaf_weight$DLM <- (((leaf_weight$afdm_start - leaf_weight$afdm_end) / leaf_weight$afdm_start) * 100)/
                    (leaf_weight$mean_temp * leaf_weight$number.days)
 
+# keep a full dataframe for the calculation of the decompositon rate k
+leaf_weight_k <- leaf_weight
+
 # only keep relevant columns for further statistics
 leaf_weight <- leaf_weight[,c("stream", "time.point", "treatment", "replicate", "DLM")]
 ```
+
 
 ## Statistical analysis DLM
 investigate data 
@@ -273,10 +277,12 @@ hist(leaf_weight$DLM)
 
 qqnorm(leaf_weight$DLM, datax=TRUE)
 qqline(leaf_weight$DLM, datax=TRUE)
+
+library(parameters)
+skewness(leaf_weight$DLM) # 2.268 
 ```
 
-data are not perfectly normal distributed, since we have dispersion at the ends
-but normal distribution still the the best fit
+data not normally distributed. identify outliers (strong tail visible)
 
 ### model building
 linear mixed model with the stream and stream + treatment (to consider the technical replicates) as random factor, check if both explanatory variables (namely time.point and treatment) interact
@@ -287,17 +293,17 @@ leaf_weight$fac_repli <- paste(leaf_weight$stream, leaf_weight$treatment)
 
 DLM_lmer <- lmer(DLM ~ time.point + treatment + time.point:treatment + (1|stream) + (1|fac_repli), data = leaf_weight)
 
-plot(DLM_lmer) # point cloud looks evenly distributed --> normal distribution
-qreference(residuals(DLM_lmer)) # normality not perfect, but ok
+plot(DLM_lmer) # point cloud looDLMs evenly distributed --> normal distribution
+qreference(residuals(DLM_lmer)) # normality not perfect, but oDLM
 
 drop1(DLM_lmer, test = 'Chisq')
 # interaction is highly significant (p = 0.002285)
-# check next at which time points is there a difference between treatments and where not
+# checDLM next at which time points is there a difference between treatments and where not
 anova(DLM_lmer)
 ```
 
 ### check differences between the treatments at each timepoint
-conduct Tukey-test
+conduct pairwise comparison
 ```{r}
 DLM_inter <- lsmeans(DLM_lmer, ~ treatment | time.point )
 
@@ -305,65 +311,115 @@ DLM_inter_dunn1 <- contrast(DLM_inter, 'pairwise')
 (DLM_inter_dunn_sum1 <- summary(DLM_inter_dunn1, infer = TRUE, adjust = 'mvt'))
 ```
 
-#### create Figure 1
-create DLM plot
+## decompostion rate k
 ```{r}
-DLM_CI <- group.CI(DLM ~ time.point + treatment,
-                   data = leaf_weight,
+leaf_weight_k$k <- (-log((leaf_weight_k$afdm_end / leaf_weight_k$afdm_start)) )/
+                   (leaf_weight_k$mean_temp * leaf_weight_k$number.days)
+```
+
+### Statistical analysis k
+investigate data 
+```{r}
+hist(leaf_weight_k$k) 
+
+qqnorm(leaf_weight_k$k, datax=TRUE)
+qqline(leaf_weight_k$k, datax=TRUE)
+
+library(parameters)
+skewness(leaf_weight_k$k) # 2.268 
+```
+
+data not normally distributed. But due to the logarithmic character of the variable a transformation is not possible and the non-normality is not driven by single outliers, but by a right tail. This tail suggests that a linear model is still best way to go and other distributions are not better suited. 
+
+##### model with decomposition rate k
+```{r}
+# create the second random factor stream + treatment
+leaf_weight_k$fac_repli <- paste(leaf_weight_k$stream, leaf_weight_k$treatment)
+
+k_lmer <- lmer(k ~ time.point + treatment + time.point:treatment + (1|stream) + (1|fac_repli), data = leaf_weight_k)
+
+plot(k_lmer) # point cloud looks evenly distributed --> normal distribution
+qreference(residuals(k_lmer)) # normality not perfect, but ok
+
+drop1(k_lmer, test = 'Chisq')
+# interaction is highly significant (p = 0.001353 **)
+# check next at which time points is there a difference between treatments and where not
+anova(k_lmer)
+```
+
+
+#### check differences between the treatments at each timepoint
+conduct pairwise comparison
+```{r}
+k_inter <- lsmeans(k_lmer, ~ treatment | time.point )
+k_inter_dunn1 <- contrast(k_inter, 'pairwise')
+(k_inter_dunn_sum1 <- summary(k_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+
+##### create Figure SX
+create plot  k plot w
+```{r}
+k_CI <- group.CI(k ~ time.point + treatment,
+                   data = leaf_weight_k,
                    ci = 0.95)
 
 # change order of the factor time point
-DLM_CI$time.point <- factor(DLM_CI$time.point,
+k_CI$time.point <- factor(k_CI$time.point,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-DLM_CI$treatment <- gsub("transplant", "trans.", DLM_CI$treatment)
+k_CI$treatment <- gsub("transplant", "trans.", k_CI$treatment)
+
 
 # for indication of significance
-ann_text_1 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "**", 
+ann_text_1 <- data.frame(treatment = "trans.", k.mean = 0.003, lab = "\U25AA", 
                        time.point = factor("April",levels = c("April", "June", "August", "September")))  
 # Difference forest - viti April
-ann_text_2 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**", 
+ann_text_2 <- data.frame(treatment = "viti", k.mean = 0.002885, lab = "\U25AA", 
                        time.point = factor("April",levels = c("April", "June", "August", "September"))) 
 # Difference transplant - viti April
-ann_text_3 <- data.frame(treatment = "trans.", DLM.mean = 0.20, lab = "\U25AA",  # unicode hex for square
-                       time.point = factor("June",levels = c("April", "June", "August", "September"))) 
-# Difference forest - viti June
-ann_text_4 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**", 
+# ann_text_3 <- data.frame(treatment = "trans.", k.mean = 0.20, lab = "\U25AA",  # unicode hex for square
+#                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
+# # Difference forest - viti June
+ann_text_4 <- data.frame(treatment = "viti", k.mean = 0.00288, lab = "**", 
                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # Difference transplant - viti June
-ann_text_5 <- data.frame(treatment = "forest", DLM.mean = 0.195, lab = "\U25AA", 
-                       time.point = factor("August",levels = c("April", "June", "August", "September"))) 
-# Difference forest - transplant August
-ann_text_6 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***", 
+# ann_text_5 <- data.frame(treatment = "forest", k.mean = 0.195, lab = "\U25AA", 
+#                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
+# # Difference forest - transplant August
+ann_text_6 <- data.frame(treatment = "trans.", k.mean = 0.00299, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti August
-ann_text_7 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "***", 
+ann_text_7 <- data.frame(treatment = "viti", k.mean = 0.00288, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference transplant - viti August
-ann_text_8 <- data.frame(treatment = "forest", DLM.mean = 0.1945, lab = "*", 
-                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
-# Difference forest - transplant September
-ann_text_9 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***", 
+# ann_text_8 <- data.frame(treatment = "forest", k.mean = 0.1945, lab = "*", 
+#                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# # Difference forest - transplant September
+ann_text_9 <- data.frame(treatment = "trans.", k.mean = 0.00299, lab = "**", 
                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti September
-ann_text_10 <- data.frame(treatment = "viti", DLM.mean = 0.195, lab = "\U25AA",
-                       time.point = factor("September",levels = c("April", "June", "August", "September"))) 
-# Difference transplant - viti September
-ann_text <- rbind(ann_text_1, ann_text_2, ann_text_3, ann_text_4, ann_text_5, ann_text_6, ann_text_7, ann_text_8, ann_text_9, ann_text_10)
+# ann_text_10 <- data.frame(treatment = "viti", k.mean = 0.195, lab = "\U25AA",
+#                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
+# # Difference transplant - viti September
+ann_text <- rbind(ann_text_1, ann_text_2, ann_text_4,  ann_text_6, ann_text_7,  ann_text_9)
+
+
+
+
 
 # for lines below significance indications
-fv <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.198), 4)) 
-mv <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.192), 4))
-nv <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.1935), 4))
+fv <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.00298), 4)) 
+mv <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.00285), 4))
+nv <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.0029), 4))
 
-p1_DLM <-  ggplot(DLM_CI, aes(x = treatment, y = DLM.mean)) +
-  geom_pointrange(aes(y = DLM.mean, ymin = DLM.lower, ymax = DLM.upper))+
-  geom_point(mapping = aes(y = DLM.mean), size = 3) +
+p1_k <-  ggplot(k_CI, aes(x = treatment, y = k.mean)) +
+  geom_pointrange(aes(y = k.mean, ymin = k.lower, ymax = k.upper))+
+  geom_point(mapping = aes(y = k.mean), size = 3) +
   facet_wrap(~time.point, nrow = 1) +
-  ylab('Decomposed leaf mass [%] per dday')+
+  ylab('decompositon rate k per dday')+
   xlab("")+
-  ylim(0.11, 0.20)+
+  ylim(0.00125, 0.003)+
   geom_text(data = ann_text, label = ann_text$lab, cex = 7)+
   geom_line(data = fv, aes(x = a, y = b)) +
   geom_line(data = mv, aes(x = a, y = b)) +
@@ -374,14 +430,93 @@ p1_DLM <-  ggplot(DLM_CI, aes(x = treatment, y = DLM.mean)) +
          legend.position="none", strip.text.x = element_text(face = "bold"), 
          text = element_text(size=18), plot.title = element_blank(),strip.background = element_rect(fill="white"))
 
-p1_DLM
+p1_k
 
-svg(filename="Figure_1_DLM.svg", width=10, height=7.5, pointsize=12)
-p1_DLM
+svg(filename="Figure_1_k.svg", width=10, height=7.5, pointsize=12)
+p1_k
 dev.off()
 
 # unnecessary lines for significance will be removed manually in the vector graphic
 ```
+
+
+
+<!-- create DLM plot -->
+<!-- ```{r} -->
+<!-- DLM_CI <- group.CI(DLM ~ time.point + treatment, -->
+<!--                    data = leaf_weight, -->
+<!--                    ci = 0.95) -->
+
+<!-- # change order of the factor time point -->
+<!-- DLM_CI$time.point <- factor(DLM_CI$time.point, -->
+<!--                              levels = c("April", "June", "August", "September")) -->
+
+<!-- # rename transplant treatments in order to enable fit to the plot -->
+<!-- DLM_CI$treatment <- gsub("transplant", "trans.", DLM_CI$treatment) -->
+
+<!-- # for indication of significance -->
+<!-- ann_text_1 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "**",  -->
+<!--                        time.point = factor("April",levels = c("April", "June", "August", "September")))   -->
+<!-- # Difference forest - viti April -->
+<!-- ann_text_2 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**",  -->
+<!--                        time.point = factor("April",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference transplant - viti April -->
+<!-- ann_text_3 <- data.frame(treatment = "trans.", DLM.mean = 0.20, lab = "\U25AA",  # unicode hex for square -->
+<!--                        time.point = factor("June",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference forest - viti June -->
+<!-- ann_text_4 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**",  -->
+<!--                        time.point = factor("June",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference transplant - viti June -->
+<!-- ann_text_5 <- data.frame(treatment = "forest", DLM.mean = 0.195, lab = "\U25AA",  -->
+<!--                        time.point = factor("August",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference forest - transplant August -->
+<!-- ann_text_6 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***",  -->
+<!--                        time.point = factor("August",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference forest - viti August -->
+<!-- ann_text_7 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "***",  -->
+<!--                        time.point = factor("August",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference transplant - viti August -->
+<!-- ann_text_8 <- data.frame(treatment = "forest", DLM.mean = 0.1945, lab = "*",  -->
+<!--                        time.point = factor("September",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference forest - transplant September -->
+<!-- ann_text_9 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***",  -->
+<!--                        time.point = factor("September",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference forest - viti September -->
+<!-- ann_text_10 <- data.frame(treatment = "viti", DLM.mean = 0.195, lab = "\U25AA", -->
+<!--                        time.point = factor("September",levels = c("April", "June", "August", "September")))  -->
+<!-- # Difference transplant - viti September -->
+<!-- ann_text <- rbind(ann_text_1, ann_text_2, ann_text_3, ann_text_4, ann_text_5, ann_text_6, ann_text_7, ann_text_8, ann_text_9, ann_text_10) -->
+
+<!-- # for lines below significance indications -->
+<!-- fv <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.198), 4))  -->
+<!-- mv <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.192), 4)) -->
+<!-- nv <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.1935), 4)) -->
+
+<!-- p1_DLM <-  ggplot(DLM_CI, aes(x = treatment, y = DLM.mean)) + -->
+<!--   geom_pointrange(aes(y = DLM.mean, ymin = DLM.lower, ymax = DLM.upper))+ -->
+<!--   geom_point(mapping = aes(y = DLM.mean), size = 3) + -->
+<!--   facet_wrap(~time.point, nrow = 1) + -->
+<!--   ylab('Decomposed leaf mass [%] per dday')+ -->
+<!--   xlab("")+ -->
+<!--   ylim(0.11, 0.20)+ -->
+<!--   geom_text(data = ann_text, label = ann_text$lab, cex = 7)+ -->
+<!--   geom_line(data = fv, aes(x = a, y = b)) + -->
+<!--   geom_line(data = mv, aes(x = a, y = b)) + -->
+<!--   geom_line(data = nv, aes(x = a, y = b)) + -->
+<!--   theme_bw()+ -->
+<!--   theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(),  -->
+<!--          axis.text.y = element_text(colour="black", size = 18),  -->
+<!--          legend.position="none", strip.text.x = element_text(face = "bold"),  -->
+<!--          text = element_text(size=18), plot.title = element_blank(),strip.background = element_rect(fill="white")) -->
+
+<!-- p1_DLM -->
+
+<!-- svg(filename="Figure_1_DLM.svg", width=10, height=7.5, pointsize=12) -->
+<!-- p1_DLM -->
+<!-- dev.off() -->
+
+<!-- # unnecessary lines for significance will be removed manually in the vector graphic -->
+<!-- ``` -->
 
 
 # Fungal communities
@@ -525,6 +660,79 @@ p1_taxa <-  ggplot(taxa_CI, aes(x = treatment, y = taxa_rich.mean)) +
 p1_taxa
 
 # unnecessary lines for significance will be removed manually in the vector graphic
+```
+
+### sporulation rate
+calculate total sporulation rate based on 
+```{r}
+conidia_corr$conidia_total <- rowSums(conidia_corr[4:60])
+```
+
+
+Statistics to sporulation rate
+```{r}
+spor_lmer1 <- lmer(conidia_total ~ time.point + treatment + time.point:treatment + (1|stream), data = conidia_corr)
+
+drop1(spor_lmer1, test = 'Chisq')
+# interaction not significant, reduce model complexity
+
+spor_lmer2 <- lmer(conidia_total ~ time.point + treatment + (1|stream), data = conidia_corr)
+
+drop1(spor_lmer2, test = 'Chisq') # timepoint significant
+
+anova(spor_lmer2)
+```
+
+
+```{r}
+spor_inter <- lsmeans(spor_lmer2, ~ treatment | time.point )
+
+spor_inter_dunn1 <- contrast(spor_inter, 'pairwise')
+(spor_inter_dunn_sum1 <- summary(spor_inter_dunn1, infer = TRUE, adjust = 'mvt'))
+```
+
+No significant differences at any point
+
+Check differences between time points
+```{r}
+spor_inter2 <- lsmeans(spor_lmer2, ~ time.point)
+
+spor_inter_dunn2 <- contrast(spor_inter2, 'pairwise')
+(spor_inter_dunn_sum2 <- summary(spor_inter_dunn2, infer = TRUE, adjust = 'mvt'))
+```
+April significantly different from other time points, Tendency of difference between June and September, due to seasonality? Since August and September are similar, the different deployment time is likely not the main reason for differences in sporulation rate
+
+
+#### create Figure SX
+create plot of decomposition data
+```{r}
+spor_CI <- group.CI(conidia_total ~ time.point + treatment,
+                   data = conidia_corr,
+                   ci = 0.95)
+
+# change order of factor
+spor_CI$time.point <- factor(spor_CI$time.point,
+                             levels = c("April", "June", "August", "September"))
+
+# rename transplant treatments in order to enable fit to the plot
+spor_CI$treatment <- gsub("transplant", "trans.", spor_CI$treatment)
+
+p1_spor <-  ggplot(spor_CI, aes(x = treatment, y = conidia_total.mean)) +
+  geom_pointrange(data = spor_CI, aes(y = conidia_total.mean, ymin = conidia_total.lower, ymax = conidia_total.upper))+
+  geom_point(data = spor_CI, mapping = aes(y = conidia_total.mean), size = 3) +
+  facet_wrap(~time.point, nrow = 1) +
+  ylab('sporulation rate')+
+  xlab("")+
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(), 
+         axis.text.y = element_text(colour="black", size = 18), 
+         legend.position="none", strip.text.x = element_text(face = "bold"), 
+         text = element_text(size=18), plot.title = element_blank(),strip.background = element_rect(fill="white"))
+
+# svg(filename="Figure_SX_sporulation_rate.svg", width=10, height=7.5, pointsize=12)
+png(filename="Figure_SX_sporulation_rate.png", width=10, height=7.5, pointsize=12, units = "in", res = 800)
+p1_spor
+dev.off()
 ```
 
 
@@ -859,6 +1067,54 @@ ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment),
            col = rep(cols, each = 4), label = F, draw = "polygon", border =  rep(cols, each = 4))
 dev.off()
 ```
+
+
+##### create Plot similar to Figure 2 without ploygons
+```{r}
+scl = 'symmetric'
+# arrange size of single plot
+si_sc <- scores(rda_conid_5, choices = 1:2, scaling = scl, display = 'sites')
+sp_sc <- scores(rda_conid_5, choices = 1:2, scaling = scl, display = 'species')
+va_sc <- scores(rda_conid_5, choices = 1:2, scaling = scl, display = 'cn')
+
+scrs <- scores(rda_conid_5, display = c("sites"), scaling = scl)
+
+png(filename="Figure_SX_RDA_conidia_wo_polygon.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+p1_RDA_conid <- plot(rda_conid_5, 
+          scaling = 'symmetric', 
+          type = 'n',
+          xlab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][1],
+                     " (", round(summary(rda_conid_5)$cont$importance[2,1]*100),  
+                     "% total variance)", sep=""),
+          ylab = 
+            paste(attributes(summary(rda_conid_5)$cont$importance)$dimnames[[2]][2],
+                     " (", round(summary(rda_conid_5)$cont$importance[2,2]*100),  
+                     "% total variance)", sep=""), 
+          xlim = c(min(scrs[,1]), 0.2),
+          # at min space added for legend
+          ylim = c(min(scrs[,2]) + ((1/10) *  min(scrs[,2])), max(scrs[,2]) + ((1/10) *  max(scrs[,2]))),
+          main = NA, cex.lab = 1.5, cex.axis = 1.5, cex.main = 1.5)
+
+# add points colored by fungicide treatment
+cols <- c("#19A1BF","#0000EE", "#F00303")
+# points shaped by cycle
+pchs <- c(16, 17, 15, 18)
+points(si_sc,
+       col = cols[conid_expl$treatment],  # color by treatment
+       pch = pchs[conid_expl$time.point],      # shape by  timepoint
+       cex = 1.5)
+
+legend('bottomleft', 
+       legend = c("forest", "transplant", "viticulture", "April", "June", "August", "September"),
+       col = c(rep("white",3), rep('grey20', 4)),
+       text.col = c(cols, rep('grey20', 4)),
+       pch = c(rep(16, 3), 16, 15, 17, 18), bty = "n", cex=1.3)
+
+dev.off()
+```
+
+
 
 ### IndVal
 identify indicator taxa for time points / treatments
@@ -1887,10 +2143,10 @@ p1_tax_DNA
 
 save one figures with all richness plots
 ```{r}
-fig_S4_richness <-ggarrange(p1_taxa, p1_tax_DNA, p1_ASV_hyph, p1_ASV, nrow = 4,labels = c("A","B", "C", "D"))
+fig_S4_richness <-ggarrange(p1_taxa, p1_tax_DNA, p1_ASV_hyph, p1_ASV, nrow = 2, ncol= 2, labels = c("A","B", "C", "D"))
 
 
-svg(filename="Figure_S4_richness.svg", width=10, height=30, pointsize=12)
+svg(filename="Figure_S4_richness.svg", width=16.5, height=15, pointsize=11)
 fig_S4_richness
 dev.off()
 
