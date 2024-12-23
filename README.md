@@ -1,6 +1,6 @@
-## Repo for the publication: Timing matters: Land use determines temporal dynamics in structure and function of fungal communities in streams
+## Repo for the publication: Timing matters: Viticultural land use determines responses in structure and function of fungal stream communities across one growing season
 
-This repo contains the R code and data for the related manuscript submitted to Global Change Biology.
+This repo contains the R code and data for the related manuscript resubmitted to Global Change Biology.
 
 Written by Verena C. Schreiner, revised by Moritz Link and Ralf B. Schäfer
 
