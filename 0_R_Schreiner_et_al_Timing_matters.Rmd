@@ -356,8 +356,8 @@ k_inter_dunn1 <- contrast(k_inter, 'pairwise')
 (k_inter_dunn_sum1 <- summary(k_inter_dunn1, infer = TRUE, adjust = 'mvt'))
 ```
 
-##### create Figure SX
-create plot  k plot w
+##### create Figure S4
+create plot decomposition rates k
 ```{r}
 k_CI <- group.CI(k ~ time.point + treatment,
                    data = leaf_weight_k,
@@ -368,44 +368,42 @@ k_CI$time.point <- factor(k_CI$time.point,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-k_CI$treatment <- gsub("transplant", "trans.", k_CI$treatment)
-
+k_CI$treatment <- gsub("transplant", "T", k_CI$treatment)
+k_CI$treatment <- gsub("forest", "F", k_CI$treatment)
+k_CI$treatment <- gsub("viti", "V", k_CI$treatment)
 
 # for indication of significance
-ann_text_1 <- data.frame(treatment = "trans.", k.mean = 0.003, lab = "\U25AA", 
+ann_text_1 <- data.frame(treatment = "T", k.mean = 0.003, lab = "\U25AA", 
                        time.point = factor("April",levels = c("April", "June", "August", "September")))  
 # Difference forest - viti April
-ann_text_2 <- data.frame(treatment = "viti", k.mean = 0.002885, lab = "\U25AA", 
+ann_text_2 <- data.frame(treatment = "V", k.mean = 0.002885, lab = "\U25AA", 
                        time.point = factor("April",levels = c("April", "June", "August", "September"))) 
 # Difference transplant - viti April
-# ann_text_3 <- data.frame(treatment = "trans.", k.mean = 0.20, lab = "\U25AA",  # unicode hex for square
+# ann_text_3 <- data.frame(treatment = "T", k.mean = 0.20, lab = "\U25AA",  # unicode hex for square
 #                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # # Difference forest - viti June
-ann_text_4 <- data.frame(treatment = "viti", k.mean = 0.00288, lab = "**", 
+ann_text_4 <- data.frame(treatment = "V", k.mean = 0.00288, lab = "**", 
                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # Difference transplant - viti June
-# ann_text_5 <- data.frame(treatment = "forest", k.mean = 0.195, lab = "\U25AA", 
+# ann_text_5 <- data.frame(treatment = "F", k.mean = 0.195, lab = "\U25AA", 
 #                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # # Difference forest - transplant August
-ann_text_6 <- data.frame(treatment = "trans.", k.mean = 0.00299, lab = "***", 
+ann_text_6 <- data.frame(treatment = "T", k.mean = 0.00299, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti August
-ann_text_7 <- data.frame(treatment = "viti", k.mean = 0.00288, lab = "***", 
+ann_text_7 <- data.frame(treatment = "V", k.mean = 0.00288, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference transplant - viti August
-# ann_text_8 <- data.frame(treatment = "forest", k.mean = 0.1945, lab = "*", 
+# ann_text_8 <- data.frame(treatment = "F", k.mean = 0.1945, lab = "*", 
 #                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # # Difference forest - transplant September
-ann_text_9 <- data.frame(treatment = "trans.", k.mean = 0.00299, lab = "**", 
+ann_text_9 <- data.frame(treatment = "T", k.mean = 0.00299, lab = "**", 
                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti September
-# ann_text_10 <- data.frame(treatment = "viti", k.mean = 0.195, lab = "\U25AA",
+# ann_text_10 <- data.frame(treatment = "V", k.mean = 0.195, lab = "\U25AA",
 #                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # # Difference transplant - viti September
 ann_text <- rbind(ann_text_1, ann_text_2, ann_text_4,  ann_text_6, ann_text_7,  ann_text_9)
-
-
-
 
 
 # for lines below significance indications
@@ -432,7 +430,7 @@ p1_k <-  ggplot(k_CI, aes(x = treatment, y = k.mean)) +
 
 p1_k
 
-svg(filename="Figure_1_k.svg", width=10, height=7.5, pointsize=12)
+svg(filename="Figure_S4_decomposition_rate.svg", width=10, height=7.5, pointsize=12)
 p1_k
 dev.off()
 
@@ -441,82 +439,85 @@ dev.off()
 
 
 
-<!-- create DLM plot -->
-<!-- ```{r} -->
-<!-- DLM_CI <- group.CI(DLM ~ time.point + treatment, -->
-<!--                    data = leaf_weight, -->
-<!--                    ci = 0.95) -->
+##### create Figure 1 
+create plot DLM
+```{r}
+DLM_CI <- group.CI(DLM ~ time.point + treatment,
+                   data = leaf_weight,
+                   ci = 0.95)
 
-<!-- # change order of the factor time point -->
-<!-- DLM_CI$time.point <- factor(DLM_CI$time.point, -->
-<!--                              levels = c("April", "June", "August", "September")) -->
+# change order of the factor time point
+DLM_CI$time.point <- factor(DLM_CI$time.point,
+                             levels = c("April", "June", "August", "September"))
 
-<!-- # rename transplant treatments in order to enable fit to the plot -->
-<!-- DLM_CI$treatment <- gsub("transplant", "trans.", DLM_CI$treatment) -->
+# rename transplant treatments in order to enable fit to the plot
+DLM_CI$treatment <- gsub("transplant", "T", DLM_CI$treatment)
+DLM_CI$treatment <- gsub("forest", "F", DLM_CI$treatment)
+DLM_CI$treatment <- gsub("viti", "V", DLM_CI$treatment)
 
-<!-- # for indication of significance -->
-<!-- ann_text_1 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "**",  -->
-<!--                        time.point = factor("April",levels = c("April", "June", "August", "September")))   -->
-<!-- # Difference forest - viti April -->
-<!-- ann_text_2 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**",  -->
-<!--                        time.point = factor("April",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference transplant - viti April -->
-<!-- ann_text_3 <- data.frame(treatment = "trans.", DLM.mean = 0.20, lab = "\U25AA",  # unicode hex for square -->
-<!--                        time.point = factor("June",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference forest - viti June -->
-<!-- ann_text_4 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "**",  -->
-<!--                        time.point = factor("June",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference transplant - viti June -->
-<!-- ann_text_5 <- data.frame(treatment = "forest", DLM.mean = 0.195, lab = "\U25AA",  -->
-<!--                        time.point = factor("August",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference forest - transplant August -->
-<!-- ann_text_6 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***",  -->
-<!--                        time.point = factor("August",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference forest - viti August -->
-<!-- ann_text_7 <- data.frame(treatment = "viti", DLM.mean = 0.193, lab = "***",  -->
-<!--                        time.point = factor("August",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference transplant - viti August -->
-<!-- ann_text_8 <- data.frame(treatment = "forest", DLM.mean = 0.1945, lab = "*",  -->
-<!--                        time.point = factor("September",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference forest - transplant September -->
-<!-- ann_text_9 <- data.frame(treatment = "trans.", DLM.mean = 0.199, lab = "***",  -->
-<!--                        time.point = factor("September",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference forest - viti September -->
-<!-- ann_text_10 <- data.frame(treatment = "viti", DLM.mean = 0.195, lab = "\U25AA", -->
-<!--                        time.point = factor("September",levels = c("April", "June", "August", "September")))  -->
-<!-- # Difference transplant - viti September -->
-<!-- ann_text <- rbind(ann_text_1, ann_text_2, ann_text_3, ann_text_4, ann_text_5, ann_text_6, ann_text_7, ann_text_8, ann_text_9, ann_text_10) -->
+# for indication of significance
+ann_text_1 <- data.frame(treatment = "T", DLM.mean = 0.199, lab = "**",
+                       time.point = factor("April",levels = c("April", "June", "August", "September")))
+# Difference forest - viti April
+ann_text_2 <- data.frame(treatment = "V", DLM.mean = 0.193, lab = "**",
+                       time.point = factor("April",levels = c("April", "June", "August", "September")))
+# Difference transplant - viti April
+ann_text_3 <- data.frame(treatment = "T", DLM.mean = 0.20, lab = "\U25AA",  # unicode hex for square
+                       time.point = factor("June",levels = c("April", "June", "August", "September")))
+# Difference forest - viti June
+ann_text_4 <- data.frame(treatment = "V", DLM.mean = 0.193, lab = "**",
+                       time.point = factor("June",levels = c("April", "June", "August", "September")))
+# Difference transplant - viti June
+ann_text_5 <- data.frame(treatment = "F", DLM.mean = 0.195, lab = "\U25AA",
+                       time.point = factor("August",levels = c("April", "June", "August", "September")))
+# Difference forest - transplant August
+ann_text_6 <- data.frame(treatment = "T", DLM.mean = 0.199, lab = "***",
+                       time.point = factor("August",levels = c("April", "June", "August", "September")))
+# Difference forest - viti August
+ann_text_7 <- data.frame(treatment = "V", DLM.mean = 0.193, lab = "***",
+                       time.point = factor("August",levels = c("April", "June", "August", "September")))
+# Difference transplant - viti August
+ann_text_8 <- data.frame(treatment = "F", DLM.mean = 0.1945, lab = "*",
+                       time.point = factor("September",levels = c("April", "June", "August", "September")))
+# Difference forest - transplant September
+ann_text_9 <- data.frame(treatment = "T", DLM.mean = 0.199, lab = "***",
+                       time.point = factor("September",levels = c("April", "June", "August", "September")))
+# Difference forest - viti September
+ann_text_10 <- data.frame(treatment = "V", DLM.mean = 0.195, lab = "\U25AA",
+                       time.point = factor("September",levels = c("April", "June", "August", "September")))
+# Difference transplant - viti September
+ann_text <- rbind(ann_text_1, ann_text_2, ann_text_3, ann_text_4, ann_text_5, ann_text_6, ann_text_7, ann_text_8, ann_text_9, ann_text_10)
 
-<!-- # for lines below significance indications -->
-<!-- fv <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.198), 4))  -->
-<!-- mv <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.192), 4)) -->
-<!-- nv <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.1935), 4)) -->
+# for lines below significance indications
+fv <- data.frame(a = c(1.0, 2, 2, 3), b = rep(c(0.198), 4))
+mv <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(0.192), 4))
+nv <- data.frame(a = c(0.7, 1, 1, 1.9), b = rep(c(0.1935), 4))
 
-<!-- p1_DLM <-  ggplot(DLM_CI, aes(x = treatment, y = DLM.mean)) + -->
-<!--   geom_pointrange(aes(y = DLM.mean, ymin = DLM.lower, ymax = DLM.upper))+ -->
-<!--   geom_point(mapping = aes(y = DLM.mean), size = 3) + -->
-<!--   facet_wrap(~time.point, nrow = 1) + -->
-<!--   ylab('Decomposed leaf mass [%] per dday')+ -->
-<!--   xlab("")+ -->
-<!--   ylim(0.11, 0.20)+ -->
-<!--   geom_text(data = ann_text, label = ann_text$lab, cex = 7)+ -->
-<!--   geom_line(data = fv, aes(x = a, y = b)) + -->
-<!--   geom_line(data = mv, aes(x = a, y = b)) + -->
-<!--   geom_line(data = nv, aes(x = a, y = b)) + -->
-<!--   theme_bw()+ -->
-<!--   theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(),  -->
-<!--          axis.text.y = element_text(colour="black", size = 18),  -->
-<!--          legend.position="none", strip.text.x = element_text(face = "bold"),  -->
-<!--          text = element_text(size=18), plot.title = element_blank(),strip.background = element_rect(fill="white")) -->
+p1_DLM <-  ggplot(DLM_CI, aes(x = treatment, y = DLM.mean)) +
+  geom_pointrange(aes(y = DLM.mean, ymin = DLM.lower, ymax = DLM.upper))+
+  geom_point(mapping = aes(y = DLM.mean), size = 3) +
+  facet_wrap(~time.point, nrow = 1) +
+  ylab('Decomposed leaf mass [%] per dday')+
+  xlab("")+
+  ylim(0.11, 0.20)+
+  geom_text(data = ann_text, label = ann_text$lab, cex = 7)+
+  geom_line(data = fv, aes(x = a, y = b)) +
+  geom_line(data = mv, aes(x = a, y = b)) +
+  geom_line(data = nv, aes(x = a, y = b)) +
+  theme_bw()+
+  theme(axis.text.x = element_text(size = 18, color="black"), axis.ticks.x = element_blank(),
+         axis.text.y = element_text(colour="black", size = 18),
+         legend.position="none", strip.text.x = element_text(face = "bold"),
+         text = element_text(size=18), plot.title = element_blank(),strip.background = element_rect(fill="white"))
 
-<!-- p1_DLM -->
+p1_DLM
 
-<!-- svg(filename="Figure_1_DLM.svg", width=10, height=7.5, pointsize=12) -->
-<!-- p1_DLM -->
-<!-- dev.off() -->
+svg(filename="Figure_1_DLM.svg", width=10, height=7.5, pointsize=12)
+p1_DLM
+dev.off()
 
-<!-- # unnecessary lines for significance will be removed manually in the vector graphic -->
-<!-- ``` -->
+# unnecessary lines for significance will be removed manually in the vector graphic
+```
 
 
 # Fungal communities
@@ -605,7 +606,7 @@ taxa_inter_dunn1 <- contrast(taxa_inter, 'pairwise')
 ```
 
 
-#### create Figure S4_A
+#### create Figure S6_a
 create plot of taxa richness based on morphological identification (conidia)
 ```{r}
 taxa_CI <- group.CI(taxa_rich ~ time.point + treatment,
@@ -617,19 +618,21 @@ taxa_CI$time.point <- factor(taxa_CI$time.point,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-taxa_CI$treatment <- gsub("transplant", "trans.", taxa_CI$treatment)
+taxa_CI$treatment <- gsub("transplant", "T", taxa_CI$treatment)
+taxa_CI$treatment <- gsub("forest", "F", taxa_CI$treatment)
+taxa_CI$treatment <- gsub("viti", "V", taxa_CI$treatment)
 
 # create significance indication
-taxa_text_1 <- data.frame(treatment = "trans.", taxa_rich.mean = 22, lab = "**", 
+taxa_text_1 <- data.frame(treatment = "T", taxa_rich.mean = 22, lab = "**", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti August
-taxa_text_2 <- data.frame(treatment = "viti", taxa_rich.mean = 20.6, lab = "**", 
+taxa_text_2 <- data.frame(treatment = "V", taxa_rich.mean = 20.6, lab = "**", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti August
-taxa_text_3 <- data.frame(treatment = "trans.", taxa_rich.mean = 22, lab = "*", 
+taxa_text_3 <- data.frame(treatment = "T", taxa_rich.mean = 22, lab = "*", 
                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti September
-taxa_text_4 <- data.frame(treatment = "viti", taxa_rich.mean = 21, lab = "\U25AA", # unicode hex for square!
+taxa_text_4 <- data.frame(treatment = "V", taxa_rich.mean = 21, lab = "\U25AA", # unicode hex for square!
                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti September
 
@@ -703,7 +706,7 @@ spor_inter_dunn2 <- contrast(spor_inter2, 'pairwise')
 April significantly different from other time points, Tendency of difference between June and September, due to seasonality? Since August and September are similar, the different deployment time is likely not the main reason for differences in sporulation rate
 
 
-#### create Figure SX
+#### create Figure S3
 create plot of decomposition data
 ```{r}
 spor_CI <- group.CI(conidia_total ~ time.point + treatment,
@@ -715,7 +718,9 @@ spor_CI$time.point <- factor(spor_CI$time.point,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-spor_CI$treatment <- gsub("transplant", "trans.", spor_CI$treatment)
+spor_CI$treatment <- gsub("transplant", "T", spor_CI$treatment)
+spor_CI$treatment <- gsub("forest", "F", spor_CI$treatment)
+spor_CI$treatment <- gsub("viti", "V", spor_CI$treatment)
 
 p1_spor <-  ggplot(spor_CI, aes(x = treatment, y = conidia_total.mean)) +
   geom_pointrange(data = spor_CI, aes(y = conidia_total.mean, ymin = conidia_total.lower, ymax = conidia_total.upper))+
@@ -729,8 +734,7 @@ p1_spor <-  ggplot(spor_CI, aes(x = treatment, y = conidia_total.mean)) +
          legend.position="none", strip.text.x = element_text(face = "bold"), 
          text = element_text(size=18), plot.title = element_blank(),strip.background = element_rect(fill="white"))
 
-# svg(filename="Figure_SX_sporulation_rate.svg", width=10, height=7.5, pointsize=12)
-png(filename="Figure_SX_sporulation_rate.png", width=10, height=7.5, pointsize=12, units = "in", res = 800)
+png(filename="Figure_S3_sporulation_rate.png", width=10, height=7.5, pointsize=12, units = "in", res = 800)
 p1_spor
 dev.off()
 ```
@@ -905,7 +909,7 @@ ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment),
 dev.off()
 ```
 
-##### Create figures for single time points, Figure S5
+##### Create figures for single time points, Figure S7
 
 time point April
 ```{r}
@@ -916,7 +920,7 @@ conid_expl_April <- droplevels(conid_expl_April)
 si_sc <- as.data.frame(si_sc)
 si_sc_April <- si_sc %>% slice(1:30)
 
-svg(filename="Figure_S5_A_RDA_conidia_April.svg", width=8, height=8, pointsize=12)
+svg(filename="Figure_S7_a_RDA_conidia_April.svg", width=8, height=8, pointsize=12)
 p1_RDA_conid <- plot(rda_conid_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -939,7 +943,7 @@ points(si_sc_April,
        cex = 1.5)
 
 # add Figure letter
-mtext("A", side = 3, line = 1, adj = 0, cex = 2)
+mtext("(a)", side = 3, line = 1, adj = 0, cex = 2)
 
 legend('bottomright',
        legend = c("forest", "transplant", "viticulture", "April", "June", "August", "September"),
@@ -961,7 +965,7 @@ which(conid_expl$time.point == "June") # rows 60-88
 
 si_sc_June <- si_sc %>% slice(60:88)
 
-svg(filename="Figure_S5_B_RDA_conidia_June.svg", width=8, height=8, pointsize=12)
+svg(filename="Figure_S7_b_RDA_conidia_June.svg", width=8, height=8, pointsize=12)
 p1_RDA_conid <- plot(rda_conid_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -984,7 +988,7 @@ points(si_sc_June,
        cex = 1.5)
 
 # add Figure letter
-mtext("B", side = 3, line = 1, adj = 0, cex = 2)
+mtext("(b)", side = 3, line = 1, adj = 0, cex = 2)
 
 # connect single points per fungicide treatment and cycle
 ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
@@ -999,7 +1003,7 @@ which(conid_expl$time.point == "August") # rows 31-59
 
 si_sc_August <- si_sc %>% slice(31:59)
 
-svg(filename="Figure_S5_C_RDA_conidia_August.svg", width=8, height=8, pointsize=12)
+svg(filename="Figure_S7_c_RDA_conidia_August.svg", width=8, height=8, pointsize=12)
 p1_RDA_conid <- plot(rda_conid_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -1022,7 +1026,7 @@ points(si_sc_August,
        cex = 1.5)
 
 # add Figure letter
-mtext("C", side = 3, line = 1, adj = 0, cex = 2)
+mtext("(c)", side = 3, line = 1, adj = 0, cex = 2)
 
 # connect single points per fungicide treatment and cycle
 ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
@@ -1037,7 +1041,7 @@ which(conid_expl$time.point == "September") # rows 31-59
 
 si_sc_September <- si_sc %>% slice(89:106)
 
-svg(filename="Figure_S5_D_RDA_conidia_September.svg", width=8, height=8, pointsize=12)
+svg(filename="Figure_S7_d_RDA_conidia_September.svg", width=8, height=8, pointsize=12)
 p1_RDA_conid <- plot(rda_conid_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -1060,7 +1064,7 @@ points(si_sc_September,
        cex = 1.5)
 
 # add Figure letter
-mtext("D", side = 3, line = 1, adj = 0, cex = 2)
+mtext("(d)", side = 3, line = 1, adj = 0, cex = 2)
 
 # connect single points per fungicide treatment and cycle
 ordihull(p1_RDA_conid, interaction(conid_expl$time.point, conid_expl$treatment), 
@@ -1069,7 +1073,8 @@ dev.off()
 ```
 
 
-##### create Plot similar to Figure 2 without ploygons
+##### create Figure S8
+Plot similar to Figure 2 without ploygons
 ```{r}
 scl = 'symmetric'
 # arrange size of single plot
@@ -1079,7 +1084,7 @@ va_sc <- scores(rda_conid_5, choices = 1:2, scaling = scl, display = 'cn')
 
 scrs <- scores(rda_conid_5, display = c("sites"), scaling = scl)
 
-png(filename="Figure_SX_RDA_conidia_wo_polygon.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+png(filename="Figure_S8_RDA_conidia_wo_polygon.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
 p1_RDA_conid <- plot(rda_conid_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -1222,7 +1227,7 @@ turn_inter_dunn2 <- contrast(turn_inter2, 'pairwise')
 * viti from April different from all other time points, no difference between other time points
 
 
-##### create Figure S3 A
+##### create Figure S5 a
 create plot of community turnover based on identification of conidia
 ```{r}
 turn_CI <- group.CI(value ~ time.point + treatment,
@@ -1234,29 +1239,31 @@ turn_CI$time.point <- factor(turn_CI$time.point,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-turn_CI$treatment <- gsub("transplant", "trans.", turn_CI$treatment)
+turn_CI$treatment <- gsub("transplant", "T", turn_CI$treatment)
+turn_CI$treatment <- gsub("viti", "V", turn_CI$treatment)
+turn_CI$treatment <- gsub("forest", "F", turn_CI$treatment)
 
 
 # create significance indication
-turn_text_1 <- data.frame(treatment = "trans.", value.mean = 0.45, lab = "***", 
+turn_text_1 <- data.frame(treatment = "T", value.mean = 0.45, lab = "***", 
                        time.point = factor("April",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti April
-turn_text_2 <- data.frame(treatment = "forest", value.mean = 0.42, lab = "**", 
+turn_text_2 <- data.frame(treatment = "F", value.mean = 0.42, lab = "**", 
                        time.point = factor("April",levels = c("April", "June", "August", "September"))) 
 # Difference forest - transplant April
-turn_text_3 <- data.frame(treatment = "trans.", value.mean = 0.45, lab = "***", 
+turn_text_3 <- data.frame(treatment = "T", value.mean = 0.45, lab = "***", 
                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti June
-turn_text_4 <- data.frame(treatment = "forest", value.mean = 0.42, lab = "**", 
+turn_text_4 <- data.frame(treatment = "F", value.mean = 0.42, lab = "**", 
                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # Difference forest - transplant June
-turn_text_5 <- data.frame(treatment = "viti", value.mean = 0.43, lab = "**", 
+turn_text_5 <- data.frame(treatment = "V", value.mean = 0.43, lab = "**", 
                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti June
-turn_text_6 <- data.frame(treatment = "trans.", value.mean = 0.45, lab = "***", 
+turn_text_6 <- data.frame(treatment = "T", value.mean = 0.45, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti August
-turn_text_7 <- data.frame(treatment = "viti", value.mean = 0.43, lab = "***", 
+turn_text_7 <- data.frame(treatment = "V", value.mean = 0.43, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti August
 
@@ -1344,7 +1351,7 @@ nest_inter_dunn2 <- contrast(nest_inter2, 'pairwise')
 (nest_inter_dunn_sum2 <- summary(nest_inter_dunn2, infer = TRUE, adjust = 'mvt'))
 ```
 
-##### create Figure S3 B
+##### create Figure S5 b
 create plot of community nestedness based on identification of conidia
 ```{r}
 nest_CI <- group.CI(value ~ time.point + treatment,
@@ -1356,26 +1363,28 @@ nest_CI$time.point <- factor(nest_CI$time.point,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-nest_CI$treatment <- gsub("transplant", "trans.", nest_CI$treatment)
+nest_CI$treatment <- gsub("transplant", "T", nest_CI$treatment)
+nest_CI$treatment <- gsub("forest", "F", nest_CI$treatment)
+nest_CI$treatment <- gsub("viti", "V", nest_CI$treatment)
 
 
 # create significance indication
-nest_text_1 <- data.frame(treatment = "forest", value.mean = 0.44, lab = "***", 
+nest_text_1 <- data.frame(treatment = "F", value.mean = 0.44, lab = "***", 
                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # Difference forest - transplant June
-nest_text_2 <- data.frame(treatment = "viti", value.mean = 0.45, lab = "***", 
+nest_text_2 <- data.frame(treatment = "V", value.mean = 0.45, lab = "***", 
                        time.point = factor("June",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti June
-nest_text_3 <- data.frame(treatment = "trans.", value.mean = 0.475, lab = "***", 
+nest_text_3 <- data.frame(treatment = "T", value.mean = 0.475, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti August
-nest_text_4 <- data.frame(treatment = "viti", value.mean = 0.45, lab = "***", 
+nest_text_4 <- data.frame(treatment = "V", value.mean = 0.45, lab = "***", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti August
-nest_text_5 <- data.frame(treatment = "trans.", value.mean = 0.475, lab = "***", 
+nest_text_5 <- data.frame(treatment = "T", value.mean = 0.475, lab = "***", 
                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # Difference forest - viti September
-nest_text_6 <- data.frame(treatment = "viti", value.mean = 0.45, lab = "***", 
+nest_text_6 <- data.frame(treatment = "V", value.mean = 0.45, lab = "***", 
                        time.point = factor("September",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti September
 
@@ -1413,10 +1422,10 @@ p1_nest
 
 save plots
 ```{r}
-fig_S3_beta_diss <-ggarrange(p1_turn, p1_nest, nrow = 2,labels = c("A","B"))
+fig_S5_beta_diss <-ggarrange(p1_turn, p1_nest, nrow = 2,labels = c("(a)","(b)"))
 
-svg(filename="Figure_S3_beta_diss.svg", width=10, height=15, pointsize=12)
-fig_S3_beta_diss
+svg(filename="Figure_S5_beta_diss.svg", width=10, height=15, pointsize=12)
+fig_S5_beta_diss
 dev.off()
 ```
 
@@ -1572,7 +1581,7 @@ anova.cca(rda_DNA_5, step = 1000, by = "terms")
 # treatment   2 0.018799 3.7769  0.001 ***
 ```
 
-#### create RDA Figure S6 C
+#### create RDA Figure S9 c
 ```{r}
 scl = 'symmetric'
 # arrange size of single plot
@@ -1582,7 +1591,7 @@ va_sc <- scores(rda_DNA_5, choices = 1:2, scaling = scl, display = 'cn')
 
 scrs <- scores(rda_DNA_5, display = c("sites"), scaling = scl)
 
-png(filename="Figure_S6_C_RDA_DNA_all_fungi.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+png(filename="Figure_S9_c_RDA_DNA_all_fungi.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
 p_DNA <- plot(rda_DNA_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -1608,10 +1617,10 @@ points(si_sc,
        pch = pchs[DNA_expl$timepoint],      # shape by  timepoint
        cex = 1.5)
 
-# don't add legend as this is already in figure A
+# don't add legend as this is already in figure a
 
 # add Figure letter
-mtext("C", side = 3, line = 1, adj = 0, cex = 2)
+mtext("(c)", side = 3, line = 1, adj = 0, cex = 2)
 
 # connect single points per fungicide treatment and cycle
 ordihull(p_DNA, interaction(DNA_expl$timepoint, DNA_expl$treatment), 
@@ -1652,8 +1661,8 @@ ASV_inter_dunn1 <- contrast(ASV_inter, 'pairwise')
 * September: \
   + no significant difference  \
 
-#### create Figure S4 D
-create plot of decomposition data
+#### create Figure S6 d
+create plot of ASV richness
 ```{r}
 ASV_CI <- group.CI(ASV_rich ~ timepoint + treatment,
                    data = DNA,
@@ -1664,10 +1673,12 @@ ASV_CI$time.point <- factor(ASV_CI$timepoint,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-ASV_CI$treatment <- gsub("transplant", "trans.", ASV_CI$treatment)
+ASV_CI$treatment <- gsub("transplant", "T", ASV_CI$treatment)
+ASV_CI$treatment <- gsub("viti", "V", ASV_CI$treatment)
+ASV_CI$treatment <- gsub("forest", "F", ASV_CI$treatment)
 
 # add one tendency to plot
-taxa_text <- data.frame(treatment = "viti", ASV_rich.mean = 85, lab = "\U25AA", 
+taxa_text <- data.frame(treatment = "V", ASV_rich.mean = 85, lab = "\U25AA", 
                        time.point = factor("August",levels = c("April", "June", "August", "September"))) 
 # Difference trans. - viti August
 mv_taxa <- data.frame(a = c(2.1, 2.5, 3, 3.3), b = rep(c(83), 4))
@@ -1781,7 +1792,7 @@ multiconstrained(method="rda", decostand(DNA_hyph, "hellinger")
 * April viti significantly different then transplant and forest
 * within August no significant difference (but in Figure a differences appears to be there) \
 
-#### create RDA Figure S6 B
+#### create RDA Figure S9 b
 ```{r}
 scl = 'symmetric'
 # arrange size of single plot
@@ -1791,7 +1802,7 @@ va_sc <- scores(rda_DNA_hyph_5, choices = 1:2, scaling = scl, display = 'cn')
 
 scrs <- scores(rda_DNA_hyph_5, display = c("sites"), scaling = scl)
 
-png(filename="Figure_S6_B_RDA_DNA_Hyph_ASVs.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+png(filename="Figure_S9_b_RDA_DNA_Hyph_ASVs.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
 p_DNA_hyph <- plot(rda_DNA_hyph_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -1818,7 +1829,7 @@ points(si_sc,
        cex = 1.5)
 
 # add Figure letter
-mtext("B", side = 3, line = 1, adj = 0, cex = 2)
+mtext("(b)", side = 3, line = 1, adj = 0, cex = 2)
 
 # connect single points per fungicide treatment and cycle
 ordihull(p_DNA_hyph, interaction(DNA_expl$timepoint, DNA_expl$treatment), 
@@ -1889,7 +1900,7 @@ ASV_hyph_inter_dunn2 <- contrast(ASV_hyph_inter2, 'pairwise')
 (ASV_hyph_inter_dunn_sum2 <- summary(ASV_hyph_inter_dunn2, infer = TRUE, adjust = 'mvt'))
 ```
 
-#### create Figure S4 C
+#### create Figure S6 c
 ```{r}
 ASV_hyph_CI <- group.CI(ASV_hyph_rich ~ timepoint + treatment,
                    data = DNA_hyph_exp,
@@ -1900,7 +1911,9 @@ ASV_hyph_CI$time.point <- factor(ASV_hyph_CI$timepoint,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-ASV_hyph_CI$treatment <- gsub("transplant", "trans.", ASV_hyph_CI$treatment)
+ASV_hyph_CI$treatment <- gsub("transplant", "T", ASV_hyph_CI$treatment)
+ASV_hyph_CI$treatment <- gsub("viti", "V", ASV_hyph_CI$treatment)
+ASV_hyph_CI$treatment <- gsub("forest", "F", ASV_hyph_CI$treatment)
 
 
 p1_ASV_hyph <-  ggplot(ASV_hyph_CI, aes(x = treatment, y = ASV_hyph_rich.mean)) +
@@ -2009,7 +2022,7 @@ multiconstrained(method="rda", decostand(DNA_taxa_hyph, "hellinger")
 * in September only forest and viti significantly different \
 
 
-#### create RDA Figure S6 A
+#### create RDA Figure S9 a
 ```{r}
 scl = 'symmetric'
 # arrange size of single plot
@@ -2020,7 +2033,7 @@ va_sc <- scores(rda_DNA_taxa_hyph_5, choices = 1:2, scaling = scl, display = 'cn
 
 scrs <- scores(rda_DNA_taxa_hyph_5, display = c("sites"), scaling = scl)
 
-png(filename="Figure_S6_A_RDA_DNA_hyph.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
+png(filename="Figure_S9_a_RDA_DNA_hyph.png", width=15, height=15, pointsize=10, units = "cm", res = 800)
 p_DNA_taxa_hyph <- plot(rda_DNA_taxa_hyph_5, 
           scaling = 'symmetric', 
           type = 'n',
@@ -2052,7 +2065,7 @@ legend('bottomleft',
        pch = c(rep(16, 3), 16, 15, 17, 18), bty = "n", cex=1.3)
 
 # add Figure letter
-mtext("A", side = 3, line = 1, adj = 0, cex = 2)
+mtext("(a)", side = 3, line = 1, adj = 0, cex = 2)
 
 # connect single points per fungicide treatment and cycle
 ordihull(p_DNA_taxa_hyph, interaction(DNA_expl$timepoint, DNA_expl$treatment), 
@@ -2110,7 +2123,7 @@ DNA_rich_inter_dunn2 <- contrast(DNA_rich_inter2, 'pairwise')
 ```
 Significant differences between April and August + September, and June and September
 
-#### create Figure S4 B
+#### create Figure S6 b
 create plot of taxa richness of hyphymycetes identified via metabarcoding
 ```{r}
 tax_DNA_CI <- group.CI(taxa_rich ~ timepoint + treatment,
@@ -2122,7 +2135,9 @@ tax_DNA_CI$time.point <- factor(tax_DNA_CI$timepoint,
                              levels = c("April", "June", "August", "September"))
 
 # rename transplant treatments in order to enable fit to the plot
-tax_DNA_CI$treatment <- gsub("transplant", "trans.", tax_DNA_CI$treatment)
+tax_DNA_CI$treatment <- gsub("transplant", "T", tax_DNA_CI$treatment)
+tax_DNA_CI$treatment <- gsub("forest", "F", tax_DNA_CI$treatment)
+tax_DNA_CI$treatment <- gsub("viti", "V", tax_DNA_CI$treatment)
  
 
 p1_tax_DNA <-  ggplot(tax_DNA_CI, aes(x = treatment, y = taxa_rich.mean)) +
@@ -2143,11 +2158,11 @@ p1_tax_DNA
 
 save one figures with all richness plots
 ```{r}
-fig_S4_richness <-ggarrange(p1_taxa, p1_tax_DNA, p1_ASV_hyph, p1_ASV, nrow = 2, ncol= 2, labels = c("A","B", "C", "D"))
+fig_S6_richness <-ggarrange(p1_taxa, p1_tax_DNA, p1_ASV_hyph, p1_ASV, nrow = 2, ncol= 2, labels = c("(a)","(b)", "(c)", "(d)"))
 
 
-svg(filename="Figure_S4_richness.svg", width=16.5, height=15, pointsize=11)
-fig_S4_richness
+svg(filename="Figure_S6_richness.svg", width=16.5, height=15, pointsize=11)
+fig_S6_richness
 dev.off()
 
 # p1_taxa # A
