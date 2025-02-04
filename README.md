@@ -6,6 +6,7 @@ Written by Verena C. Schreiner, revised by Moritz Link and Ralf B. Schäfer
 
 **Contents overview:**
 
+0\_Meta\_data\_Schreiner\_et\_al\_Timing\_matters: *provides detailed meta date on the provided data files*
 0\_R\_Schreiner\_et\_al\_Timing\_matters: *provides the R Markdown code to calculate the leaf decomposition and the fungal communities across treatments and time points*
 
 0\_R\_Schreiner\_et\_al\_Timing\_matters.html: *knitted R Markdown of the related code*
